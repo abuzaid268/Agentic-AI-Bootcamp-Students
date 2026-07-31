@@ -1,0 +1,47 @@
+# --- OS / editor cruft ---
+.DS_Store
+
+# --- Python ---
+__pycache__/
+**/__pycache__/
+.ipynb_checkpoints/
+.venv/
+**/.venv/
+
+# --- Secrets & envs ---
+.env
+**/.env
+
+# --- Instructor-only materials (never for students, any module) ---
+Module-*/M*-Instructor-Guide.md
+Module-*/solution-code/
+Capstone/Capstone-Evaluation-Rubric.md
+build_curriculum.py
+
+# --- Not student-facing content (internal marketing/build tooling) ---
+promo-assets/
+
+# ============================================================
+# Modules not yet released. Delete a module's line below (or
+# the whole block, for a phase) the week it goes live, then
+# commit + push. Module-00 and Module-01 are intentionally NOT
+# listed here, so they stay tracked from day one.
+# ============================================================
+Module-02/
+Module-03/
+Module-04/
+Module-05/
+Module-05B-Agent-Skills/
+Module-06/
+Module-07/
+Module-08/
+Module-09/
+Module-10/
+Module-11/
+Module-12/
+
+# Phase 7 (Modules 13-15) - later phase, held back as a whole
+Phase-7-Cloud-Foundry/
+
+# Capstone - released at the end of the program
+Capstone/
