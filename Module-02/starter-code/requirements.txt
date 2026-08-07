@@ -1,0 +1,9 @@
+# Module 2 — base dependencies (pin exact versions in class to a tested set)
+# After installing, freeze a lockfile:  pip freeze > requirements.lock.txt
+# LLM calls go through OpenRouter (OpenAI-compatible). Put your key in .env:
+#   OPENROUTER_API_KEY=sk-or-...
+openai
+langgraph
+langchain-openai
+crewai
+python-dotenv
