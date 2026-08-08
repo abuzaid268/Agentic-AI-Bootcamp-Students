@@ -14,7 +14,7 @@ __pycache__/
 
 # --- Instructor-only materials (never for students, any module) ---
 Module-*/M*-Instructor-Guide.md
-Module-*/solution-code/
+**/solution-code/
 Capstone/Capstone-Evaluation-Rubric.md
 build_curriculum.py
 
