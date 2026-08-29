@@ -2,8 +2,26 @@
 Module 3 Lab — STARTER
 ReAct + Planning agent in LangGraph with STRUCTURED OUTPUTS.
 
-Part 1: ReAct graph (reason -> act -> observe) using a schema-validated Action.
-Part 2: add a planner (plan-and-execute) + replan loop.
+  >>> READ M3-Lab-Brief.md FIRST <<<
+  It explains what you are building and why, in ten minutes.
+  Then follow M3-Lab-Worksheet.md, which walks these TODOs in order.
+
+WHAT YOU ARE BUILDING
+  An agent that WORKS OUT numeric answers instead of guessing them:
+
+      REASON  -> the model reads the question + everything found so far,
+                 and decides ONE next move
+      ACT     -> your Python runs the tool it asked for (no AI here)
+      OBSERVE -> the result is written to state["scratchpad"]
+      ... loop until it has enough to answer, or the budget runs out.
+
+  Part 1 (Steps 1-5): that loop, as a LangGraph state graph.
+  Part 2 (Steps 6-9): add a planner that breaks the goal into steps first.
+
+THE ONE THING TO REMEMBER
+  The model has NO memory between calls. It only knows what you put in the
+  prompt. state["scratchpad"] IS the memory - if something isn't in there,
+  the model cannot see it.
 
 Fill in the TODOs. No manual JSON parsing — use with_structured_output().
 Set your key in .env (OPENROUTER_API_KEY=sk-or-...).
@@ -42,9 +60,17 @@ def calculator(expr: str) -> str:
 # Schemas (structured outputs)
 # ---------------------------------------------------------------------------
 class Action(BaseModel):
-    """Step 2: the schema-validated action the model must return."""
+    """Step 2: the schema-validated action the model must return.
+
+    NOTE: every field is explicitly typed. Do NOT use `args: dict` - strict
+    structured-output mode requires additionalProperties:false on every object,
+    and a bare dict cannot express that (the provider returns HTTP 400).
+    """
     tool: Literal["calculator", "final_answer"]
-    args: dict = Field(default_factory=dict)
+    expr: Optional[str] = Field(
+        default=None, description="Arithmetic expression, when tool='calculator'.")
+    text: Optional[str] = Field(
+        default=None, description="The answer text, when tool='final_answer'.")
 
 
 class Plan(BaseModel):
@@ -62,6 +88,8 @@ class State(TypedDict):
     answer: Optional[str]
     plan: list
     past_steps: list
+    steps_used: int       # Step 5: the MAX_STEPS budget counter
+    replans: int          # Step 8: the MAX_REPLANS budget counter
 
 
 # ---------------------------------------------------------------------------
@@ -130,12 +158,54 @@ def build_plan_execute_graph():
 
 
 if __name__ == "__main__":
-    q = "A team has 3 sprints of 12, 19, and 8 story points. " \
-        "What's the average per sprint, and is it above 12?"
-    app = build_plan_execute_graph()
-    result = app.invoke({
-        "question": q, "scratchpad": [], "action": None,
-        "answer": None, "plan": [], "past_steps": [],
-    })
-    print("ANSWER:", result.get("answer"))
-    # Step 9: visualize ->  app.get_graph().draw_mermaid_png()  (or print mermaid)
+    # ---------------------------------------------------------------------
+    # SETUP GATE - run this file as-is before you write any code.
+    # It checks your environment. It does NOT run an agent yet, because
+    # the TODOs below are still empty.
+    # ---------------------------------------------------------------------
+    import os
+
+    print("Module 3 setup check")
+    print("-" * 40)
+
+    ok = True
+    try:
+        import langgraph
+        print("  [ok]   langgraph imported")
+    except Exception as e:
+        ok = False
+        print(f"  [FAIL] langgraph: {e}")
+
+    try:
+        from langchain_openai import ChatOpenAI  # noqa: F401
+        print("  [ok]   langchain_openai imported")
+    except Exception as e:
+        ok = False
+        print(f"  [FAIL] langchain_openai: {e}")
+
+    if os.environ.get("OPENROUTER_API_KEY"):
+        print("  [ok]   OPENROUTER_API_KEY found")
+    else:
+        ok = False
+        print("  [FAIL] OPENROUTER_API_KEY missing - check your .env file")
+
+    print("-" * 40)
+    if ok:
+        print("READY")
+        print("  1. read M3-Lab-Brief.md      (what you're building, and why)")
+        print("  2. then M3-Lab-Worksheet.md  (Step 1 onwards)")
+    else:
+        print("NOT READY - fix the [FAIL] lines above, then run this again.")
+
+    # Once you have finished Part 2, delete everything above and use this:
+    #
+    # q = ("A team has 3 sprints of 12, 19, and 8 story points. "
+    #      "What's the average per sprint, and is it above 12?")
+    # app = build_plan_execute_graph()
+    # result = app.invoke({
+    #     "question": q, "scratchpad": [], "action": None, "answer": None,
+    #     "plan": [], "past_steps": [], "steps_used": 0, "replans": 0,
+    # })
+    # print("ANSWER:", result.get("answer"))
+    #
+    # Step 9: visualize ->  print(app.get_graph().draw_mermaid())

@@ -8,8 +8,9 @@
   <h3 style="color:#0078d4; margin:4px 0; font-weight:600;">Module 3 &middot; ReAct, Planning &amp; Tool-Use &mdash; Learner Handout</h3>
   <hr style="border:0; border-top:1px solid #0078d4; width:60%; margin:16px auto;" />
   <p style="font-size:14px; color:#555; margin:6px 0;">
-    <strong>Lead Trainer</strong><br/>
-    <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150" target="_blank">Alaaldin Ahmed</a>
+    <strong>Lead Trainers</strong><br/>
+    <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150" target="_blank">Alaaldin Ahmed</a> &nbsp;|&nbsp;
+    <a href="https://il.linkedin.com/in/mohammad-abu-alhalawe" target="_blank">Mohammed Abu Alhalaweih</a>
   </p>
   <p style="font-size:12.5px; color:#777; margin:8px 0 0 0;">
     Organized by <strong>Jerusalem High-Tech Foundry (JHF)</strong> &nbsp;&middot;&nbsp; In partnership with <strong>COMCEC</strong>
@@ -22,10 +23,6 @@
 > **Duration:** 5 hours · **Prereq:** M1 (hand-rolled loop) & M2 (LangGraph + CrewAI "hello agents").
 > **You need:** your M2 environment, LangGraph + a model integration, key in `.env`, GitHub Copilot.
 > Today you rebuild the agent **properly in LangGraph** — with **structured outputs** and a **planner**.
-
-> 🧩 **Patterns in this module:** **ReAct**, **Planning**, **Reasoning**, **Goal Setting & Monitoring** — see the shared **[Pattern Catalog → PATTERNS.md](../PATTERNS.md)**.
-
-> 🕵️ **Analogy — ReAct is a detective.** *Thought → Action → Observation*: form a hunch, check **one** clue, look at what you found, repeat until the case is solved. **Planning** is writing the list of clues to chase *before* you start. See **[MENTAL-MODELS.md](../MENTAL-MODELS.md)**.
 
 ---
 
@@ -71,10 +68,16 @@ In M1 you fought `JSONDecodeError` and stripped ``` fences. Today we delete that
 - Define an action schema once, e.g.:
   ```python
   class Action(BaseModel):
-      tool: Literal["calculator", "search", "final_answer"]
-      args: dict
+      tool: Literal["calculator", "final_answer"]
+      expr: Optional[str] = None   # the sum, when tool="calculator"
+      text: Optional[str] = None   # the answer, when tool="final_answer"
   ```
   Then: `structured_llm = llm.with_structured_output(Action)`.
+
+> ⚠️ **Give every field its own type.** A catch-all `args: dict` looks tempting, but it
+> becomes `additionalProperties: true` in the JSON Schema — and strict structured-output
+> mode rejects that with an **HTTP 400**. A bare `dict` isn't a loose schema; it's the
+> absence of one.
 
 | M1 (manual) | M3 (structured) |
 |---|---|
@@ -172,7 +175,7 @@ Full steps: **`M3-Lab-Worksheet.md`**. Starter: **`starter-code/react_agent_star
   </p>
   <p style="color:#888; font-size:13px; margin:0;">
     <strong>JHF Agentic AI Bootcamp</strong> &mdash; Module 3<br/>
-    Lead Trainer: <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150">Alaaldin Ahmed</a><br/>
+    Lead Trainers: <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150">Alaaldin Ahmed</a> &amp; <a href="https://il.linkedin.com/in/mohammad-abu-alhalawe">Mohammed Abu Alhalaweih</a><br/>
     Organized by Jerusalem High-Tech Foundry (JHF) &middot; In partnership with COMCEC
   </p>
 </div>

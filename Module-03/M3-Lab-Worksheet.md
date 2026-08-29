@@ -8,8 +8,9 @@
   <h3 style="color:#0078d4; margin:4px 0; font-weight:600;">Module 3 &middot; Lab Worksheet &mdash; ReAct + Planning in LangGraph</h3>
   <hr style="border:0; border-top:1px solid #0078d4; width:60%; margin:16px auto;" />
   <p style="font-size:14px; color:#555; margin:6px 0;">
-    <strong>Lead Trainer</strong><br/>
-    <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150" target="_blank">Alaaldin Ahmed</a>
+    <strong>Lead Trainers</strong><br/>
+    <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150" target="_blank">Alaaldin Ahmed</a> &nbsp;|&nbsp;
+    <a href="https://il.linkedin.com/in/mohammad-abu-alhalawe" target="_blank">Mohammed Abu Alhalaweih</a>
   </p>
   <p style="font-size:12.5px; color:#777; margin:8px 0 0 0;">
     Organized by <strong>Jerusalem High-Tech Foundry (JHF)</strong> &nbsp;&middot;&nbsp; In partnership with <strong>COMCEC</strong>
@@ -19,10 +20,15 @@
 # Module 3 — Lab Worksheet
 ## Build a ReAct + Planning Agent in LangGraph (structured outputs)
 
-> **Time:** ~1h05 (Part 1) + ~1h (Part 2)
+> ### 📖 Read [`M3-Lab-Brief.md`](M3-Lab-Brief.md) first
+> It explains **what you're building and why** — the problem, the loop, and what
+> changed since Module 2. This worksheet is the *how*: nine steps, in order.
+> Ten minutes on the brief saves an hour of writing code you don't understand.
+
+> **Time:** ~1h (Part 1) + ~45 min (Part 2)
 > **Files:** edit `starter-code/react_agent_starter.py` → save as `react_agent.py`
 > **Goal:** rebuild the agent the *right* way — explicit graph, schema-validated actions, and a planner that decomposes multi-step goals.
-> Use GitHub Copilot for boilerplate; understand every node.
+> **Copilot:** see [`M3-Copilot-Guide.md`](M3-Copilot-Guide.md) — use it to understand, not to paste.
 
 ---
 
@@ -33,9 +39,11 @@ your agent **plans → executes with the calculator → replans → answers "Ave
 ---
 
 ## Setup gate (5 min)
-1. Activate your M2 venv. Confirm `import langgraph` works.
-2. Confirm your model integration supports **structured / tool-calling output** (your instructor will name the class model).
-3. Run the starter skeleton — it should **compile an empty graph without error**. If it doesn't, raise your hand.
+1. Activate your M2 venv.
+2. Run the starter file **as-is**: `python starter-code/react_agent_starter.py`
+   It runs a setup check and should print **READY**. It does not run an agent yet —
+   the TODOs are still empty.
+3. If any line says `[FAIL]`, fix that first. Raise your hand if you're stuck.
 
 ---
 
@@ -52,9 +60,14 @@ Create a typed state (TypedDict or Pydantic) with at least:
 ```python
 class Action(BaseModel):
     tool: Literal["calculator", "final_answer"]
-    args: dict
+    expr: Optional[str] = None   # the sum, when tool="calculator"
+    text: Optional[str] = None   # the answer, when tool="final_answer"
 ```
 Bind it: `structured_llm = llm.with_structured_output(Action)`.
+
+> ⚠️ **Give every field its own type.** A catch-all `args: dict` becomes
+> `additionalProperties: true` in the JSON Schema, and strict structured-output mode
+> rejects that with an **HTTP 400**. A bare `dict` isn't a loose schema — it's no schema.
 
 ### Step 3 — The calculator tool
 Reuse M1's safe calculator: allow only digits/operators/parentheses; return an **error string** (don't raise) on bad input.
@@ -67,7 +80,13 @@ Reuse M1's safe calculator: allow only digits/operators/parentheses; return an *
 - Entry point → `reason` → `act`.
 - Add a **conditional edge** after `act`: if an answer exists → `END`, else loop back to `reason`.
 - Carry a `MAX_STEPS` guard (recursion/step cap) so it can't loop forever.
-- 🧪 Checkpoint: solve *"What is (23 × 19) + 100?"* — the agent reasons, calls calculator twice, and returns the answer. No manual JSON parsing anywhere.
+- 🧪 Checkpoint: solve *"What is (23 × 19) + 100?"* — the agent reasons, uses the calculator, and returns **537** in 2–4 steps. No manual JSON parsing anywhere.
+
+> ℹ️ **You may see the calculator called only once.** Models often compute the final
+> `+ 100` themselves rather than making a second tool call. **Both are correct** — check
+> the *answer*, not the call count. Worth thinking about: the prompt told it to use the
+> calculator for arithmetic, and it partly ignored that. **A tool is an option, not a rule.**
+> If you ever need a guarantee, you enforce it in code, not in the prompt.
 
 > ✅ **End of Part 1:** you have ReAct as a real graph with a schema-validated action interface.
 
@@ -137,7 +156,7 @@ Compare with `solution-code/react_agent_solution.py` **after** you have your own
   </p>
   <p style="color:#888; font-size:13px; margin:0;">
     <strong>JHF Agentic AI Bootcamp</strong> &mdash; Module 3 Lab<br/>
-    Lead Trainer: <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150">Alaaldin Ahmed</a><br/>
+    Lead Trainers: <a href="https://www.linkedin.com/in/alaaldin-ahmed-260266150">Alaaldin Ahmed</a> &amp; <a href="https://il.linkedin.com/in/mohammad-abu-alhalawe">Mohammed Abu Alhalaweih</a><br/>
     Organized by Jerusalem High-Tech Foundry (JHF) &middot; In partnership with COMCEC
   </p>
 </div>
