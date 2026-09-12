@@ -1,0 +1,12 @@
+# Module 5B dependencies
+#
+# Install into the SAME environment you used for the earlier modules:
+#     Module-02\.venv\Scripts\python.exe -m pip install -r Module-05B-Agent-Skills\requirements.txt
+#
+# Python 3.12 is known good.
+#
+# Note how short this list is. That is the point of the module: a skill is a
+# folder with a markdown file in it. It needs no framework.
+
+openai>=1.40.0          # LLM client, pointed at OpenRouter
+python-dotenv>=1.0.0    # loads your .env

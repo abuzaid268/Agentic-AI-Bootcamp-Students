@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M5B · Pick a Scenario — Agentic AI Bootcamp</title>
+<style>
+  :root{
+    --navy:#1a3c5e; --blue:#0078d4; --ink:#1b2430; --mute:#667;
+    --line:#e3e8ee; --bg:#f6f8fb; --card:#fff;
+    --green:#137a4b; --amber:#9a6a00; --red:#a42a2a;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  header{
+    background:linear-gradient(135deg,var(--navy),#0f2740);
+    color:#fff; padding:30px 22px 26px; text-align:center;
+  }
+  header h1{margin:0 0 6px; font-size:27px; letter-spacing:-.3px}
+  header p{margin:0; opacity:.82; font-size:14px}
+  .wrap{max-width:1180px; margin:0 auto; padding:22px}
+
+  .bar{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    margin-bottom:18px;
+  }
+  .bar strong{font-size:13px; color:var(--mute); margin-right:2px}
+  .chip{
+    border:1px solid var(--line); background:#fff; border-radius:20px;
+    padding:5px 13px; cursor:pointer; font-size:13px; transition:.15s;
+  }
+  .chip:hover{border-color:var(--blue)}
+  .chip.on{background:var(--blue); color:#fff; border-color:var(--blue)}
+  .spacer{flex:1}
+  .btn{
+    background:var(--navy); color:#fff; border:0; border-radius:9px;
+    padding:9px 17px; cursor:pointer; font-size:13.5px; font-weight:600;
+  }
+  .btn:hover{background:#12304d}
+  .btn.ghost{background:#fff; color:var(--navy); border:1px solid var(--line)}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:14px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-left:4px solid var(--blue);
+    border-radius:11px; padding:15px 16px; cursor:pointer; transition:.16s;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .card:hover{transform:translateY(-2px); box-shadow:0 6px 20px rgba(20,40,70,.09)}
+  .card.claimed{border-left-color:var(--green); background:#f4fbf7}
+  .card.flash{animation:flash .5s ease}
+  @keyframes flash{0%{background:#fff7d6}100%{background:var(--card)}}
+  .card h3{margin:0; font-size:15.5px; display:flex; gap:8px; align-items:baseline}
+  .num{
+    background:var(--navy); color:#fff; border-radius:6px; font-size:11.5px;
+    padding:2px 7px; font-weight:700; flex:none;
+  }
+  .card.claimed .num{background:var(--green)}
+  .prob{color:var(--mute); font-size:13.4px; margin:0}
+  .tags{display:flex; gap:6px; flex-wrap:wrap; margin-top:auto; padding-top:4px}
+  .tag{font-size:11.5px; border-radius:14px; padding:2px 9px; border:1px solid var(--line); background:#fafbfc}
+  .d1{color:var(--green); border-color:#bfe5d2; background:#f2fbf6}
+  .d2{color:var(--amber); border-color:#f0dfb0; background:#fdf8ec}
+  .d3{color:var(--red);   border-color:#f0c9c9; background:#fdf3f3}
+
+  dialog{
+    border:0; border-radius:14px; padding:0; max-width:680px; width:94%;
+    box-shadow:0 24px 60px rgba(10,25,45,.3);
+  }
+  dialog::backdrop{background:rgba(12,25,42,.55)}
+  .dlg-h{background:var(--navy); color:#fff; padding:18px 22px}
+  .dlg-h h2{margin:0 0 4px; font-size:19px}
+  .dlg-h span{opacity:.8; font-size:13px}
+  .dlg-b{padding:20px 22px; max-height:58vh; overflow:auto}
+  .dlg-b h4{margin:16px 0 5px; font-size:12px; text-transform:uppercase;
+            letter-spacing:.7px; color:var(--blue)}
+  .dlg-b h4:first-child{margin-top:0}
+  .dlg-b p{margin:0; font-size:14.2px}
+  .dlg-f{padding:13px 22px; border-top:1px solid var(--line); display:flex; gap:9px; flex-wrap:wrap}
+  .ok{color:var(--green); font-size:13px; align-self:center; font-weight:600}
+
+  .roll{
+    text-align:center; padding:26px; background:var(--card);
+    border:1px dashed var(--blue); border-radius:12px; margin-bottom:18px; display:none;
+  }
+  .roll.show{display:block}
+  .roll .big{font-size:21px; font-weight:700; color:var(--navy); min-height:28px}
+  footer{text-align:center; color:var(--mute); font-size:12.5px; padding:26px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pick Your Scenario</h1>
+  <p>Module 5B · Agent Skills · one scenario each — build it, then show it</p>
+</header>
+
+<div class="wrap">
+
+  <div class="bar">
+    <strong>Shape</strong>
+    <button class="chip on" data-f="shape" data-v="all">All</button>
+    <button class="chip" data-f="shape" data-v="📄">📄 instructions</button>
+    <button class="chip" data-f="shape" data-v="🔁">🔁 method</button>
+    <button class="chip" data-f="shape" data-v="⚙️">⚙️ script</button>
+    <button class="chip" data-f="shape" data-v="📚">📚 knowledge</button>
+    <span class="spacer"></span>
+    <strong>Level</strong>
+    <button class="chip on" data-f="diff" data-v="all">All</button>
+    <button class="chip" data-f="diff" data-v="1">🟩</button>
+    <button class="chip" data-f="diff" data-v="2">🟨</button>
+    <button class="chip" data-f="diff" data-v="3">🟥</button>
+  </div>
+
+  <div class="bar">
+    <button class="btn" id="spin">🎲 Surprise me</button>
+    <button class="btn ghost" id="clear">Clear my claim</button>
+    <span class="spacer"></span>
+    <span id="status" style="font-size:13px;color:var(--mute)"></span>
+  </div>
+
+  <div class="roll" id="roll"><div class="big" id="rollText">…</div></div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-h">
+    <h2 id="dTitle"></h2>
+    <span id="dMeta"></span>
+  </div>
+  <div class="dlg-b" id="dBody"></div>
+  <div class="dlg-f">
+    <button class="btn" id="claim">✓ Claim this scenario</button>
+    <button class="btn ghost" id="copy">Copy brief for my issue</button>
+    <button class="btn ghost" id="close">Close</button>
+    <span class="ok" id="okMsg"></span>
+  </div>
+</dialog>
+
+<footer>JHF Agentic AI Bootcamp · Module 5B · in partnership with COMCEC</footer>
+
+<script>
+const S = [
+ {n:1,t:"Meeting → Action Items",s:"⚙️",d:1,
+  p:"A transcript is a wall of text. Six commitments are buried in it, and they'll be forgotten by Thursday.",
+  b:"Transcript in → a table of owner | action | due date | quote.",
+  c:"Validates every row: owner is a real name, the due date parses, and a supporting quote exists. Failing rows are rejected.",
+  w:"It refuses to output an action item with no quote behind it."},
+ {n:2,t:"House-Style Code Reviewer",s:"📚",d:2,
+  p:"Every team has rules that live in people's heads, and new joiners break them for six months.",
+  b:"A diff or file in → review comments against your written rules.",
+  c:"resources/house-rules.md — 10–15 real rules, each with a good and a bad example.",
+  w:"It cites the rule number for every comment, and stays silent where no rule applies."},
+ {n:3,t:"README Generator",s:"⚙️",d:1,
+  p:"The project works, and nobody can start it.",
+  b:"A folder path in → a README: what it is, how to run it, where to start reading.",
+  c:"A script that scans for entry points and dependency manifests.",
+  w:"Anything it couldn't determine lands under “Questions I could not answer” instead of being guessed."},
+ {n:4,t:"Bilingual Post Writer — AR + EN",s:"📄",d:2,
+  p:"You write the English, translate it, and the Arabic reads like a translation.",
+  b:"One idea in → two native-sounding posts, each written for its audience.",
+  c:"A style card per language: tone, length, hashtag rules, emoji policy.",
+  w:"The Arabic isn't a word-for-word mirror, RTL punctuation is right, and Latin product names survive intact."},
+ {n:5,t:"Dataset Profiler",s:"⚙️",d:2,
+  p:"Someone sends you a CSV and asks “can we use this?”",
+  b:"CSV in → row count, nulls per column, types, outliers, duplicate keys, and a verdict.",
+  c:"The script does all the counting. The model writes only the verdict and “what I'd fix first”.",
+  w:"Every number in the prose traces to the script's output."},
+ {n:6,t:"API Doc Writer",s:"⚙️",d:2,
+  p:"The endpoints exist. The documentation is a Slack thread.",
+  b:"A source file in → method, path, params, responses, one real curl example each.",
+  c:"A script that extracts route definitions, so no endpoint can be missed.",
+  w:"Running the generated curl examples actually works."},
+ {n:7,t:"Interview Prep Coach",s:"📚",d:1,
+  p:"“I have an interview Tuesday” is not a study plan.",
+  b:"Role + seniority in → 12 likely questions, answer skeletons, and a self-scoring rubric.",
+  c:"A question bank organised by role and competency.",
+  w:"Two different roles produce substantially different lists. If they match, your retrieval is fake."},
+ {n:8,t:"Bug Report Triager",s:"⚙️",d:2,
+  p:"“It's broken” is not a bug report.",
+  b:"A raw report in → severity, component label, repro steps, and the exact missing info to request.",
+  c:"A completeness gate: version, environment, expected vs actual, steps.",
+  w:"Severity comes from written criteria, not vibes — and it names the criterion it matched."},
+ {n:9,t:"Deck Outliner",s:"🔁",d:2,
+  p:"People open PowerPoint and start typing. That's why the deck is bad.",
+  b:"Topic + audience + time in → slide-by-slide outline, one message per slide.",
+  c:"Two phases: write the argument in prose first — no slides allowed — then break it up.",
+  w:"Phase 1 produces zero slides, and you can feel the difference in the result."},
+ {n:10,t:"Receipt & Expense Organiser",s:"📄",d:1,
+  p:"A folder of 60 files called IMG_4471.jpg and scan (3).pdf.",
+  b:"Messy folder in → a proposed rename-and-sort plan plus a monthly total.",
+  c:"No script needed. A hard safety gate: propose, never move or delete without confirmation.",
+  w:"It shows the plan and stops. A skill that deletes without asking is a bug with a nice description."},
+ {n:11,t:"SQL Explainer & Optimiser",s:"📚",d:2,
+  p:"A 60-line query, no comments, and the author has left the company.",
+  b:"Query in → plain-English explanation, then concrete improvements.",
+  c:"A checklist resource: SELECT *, missing indexes, N+1, implicit casts, functions on indexed columns.",
+  w:"It explains why each change helps, not just what to change."},
+ {n:12,t:"Test-Case Generator",s:"⚙️",d:3,
+  p:"Tests get written for the happy path and nothing else.",
+  b:"A function in → happy path, edge cases, error cases — then the actual test file.",
+  c:"A script that runs the generated tests and reports pass/fail.",
+  w:"At least one generated test fails and correctly identifies a real gap. A suite that always passes told you nothing."},
+ {n:13,t:"Brand Image Brief",s:"🔁",d:1,
+  p:"“Make it look premium” is not art direction.",
+  b:"Product + audience in → mood, palette with hex codes, composition, what to avoid.",
+  c:"Two phases: name the aesthetic first, then specify it. Include an explicit anti-pattern section.",
+  w:"Two different products produce genuinely different briefs."},
+ {n:14,t:"Study Plan Builder",s:"⚙️",d:1,
+  p:"Exam in five weeks, syllabus in twelve sections, no plan.",
+  b:"Syllabus + exam date + hours per week in → a dated weekly plan with checkpoints.",
+  c:"A script doing the date arithmetic; it refuses to schedule past the exam or beyond the stated hours.",
+  w:"Changing the exam date changes the whole plan correctly. Models drift on date maths in prose."},
+ {n:15,t:"Release Notes Writer",s:"⚙️",d:2,
+  p:"git log is for you. A changelog is for them.",
+  b:"A commit range in → notes grouped Added / Changed / Fixed, written for users.",
+  c:"A script that runs and parses git log. The model only translates into user-facing language.",
+  w:"“fix: null check in svc layer” becomes something a customer understands — and internal-only commits are dropped."}
+];
+
+const DIFF = {1:["🟩","comfortable","d1"],2:["🟨","some work","d2"],3:["🟥","ambitious","d3"]};
+const SHAPE = {"📄":"instructions only","🔁":"a two-phase method","⚙️":"instructions + a script","📚":"instructions + knowledge"};
+const KEY = "m5b-claim";
+let filters = {shape:"all", diff:"all"};
+let current = null;
+
+const grid = document.getElementById("grid");
+const dlg  = document.getElementById("dlg");
+
+function claimed(){ return localStorage.getItem(KEY); }
+
+function render(){
+  const claim = claimed();
+  grid.innerHTML = "";
+  const shown = S.filter(x =>
+    (filters.shape==="all" || x.s===filters.shape) &&
+    (filters.diff ==="all" || String(x.d)===filters.diff));
+
+  shown.forEach(x=>{
+    const d = DIFF[x.d];
+    const el = document.createElement("div");
+    el.className = "card" + (claim==String(x.n) ? " claimed" : "");
+    el.dataset.n = x.n;
+    el.innerHTML =
+      `<h3><span class="num">${x.n}</span>${x.t}</h3>` +
+      `<p class="prob">${x.p}</p>` +
+      `<div class="tags">
+         <span class="tag">${x.s} ${SHAPE[x.s]}</span>
+         <span class="tag ${d[2]}">${d[0]} ${d[1]}</span>
+         ${claim==String(x.n)?'<span class="tag d1">✓ yours</span>':''}
+       </div>`;
+    el.onclick = ()=>openCard(x);
+    grid.appendChild(el);
+  });
+
+  document.getElementById("status").textContent =
+    `${shown.length} of ${S.length} shown` + (claim ? ` · you claimed #${claim}` : "");
+}
+
+function openCard(x){
+  current = x;
+  const d = DIFF[x.d];
+  document.getElementById("dTitle").textContent = `${x.n}. ${x.t}`;
+  document.getElementById("dMeta").textContent  = `${x.s} ${SHAPE[x.s]}  ·  ${d[0]} ${d[1]}`;
+  document.getElementById("dBody").innerHTML =
+    `<h4>The problem</h4><p>${x.p}</p>
+     <h4>What you build</h4><p>${x.b}</p>
+     <h4>The script or resource</h4><p>${x.c}</p>
+     <h4>Done when</h4><p>${x.w}</p>`;
+  document.getElementById("okMsg").textContent = "";
+  document.getElementById("claim").textContent =
+    claimed()==String(x.n) ? "✓ Already yours" : "✓ Claim this scenario";
+  dlg.showModal();
+}
+
+document.querySelectorAll(".chip").forEach(c=>{
+  c.onclick = ()=>{
+    document.querySelectorAll(`.chip[data-f="${c.dataset.f}"]`)
+            .forEach(o=>o.classList.remove("on"));
+    c.classList.add("on");
+    filters[c.dataset.f] = c.dataset.v;
+    render();
+  };
+});
+
+document.getElementById("claim").onclick = ()=>{
+  localStorage.setItem(KEY, String(current.n));
+  document.getElementById("okMsg").textContent = "Claimed — it's on your card now.";
+  document.getElementById("claim").textContent = "✓ Already yours";
+  render();
+};
+
+document.getElementById("copy").onclick = ()=>{
+  const x = current, d = DIFF[x.d];
+  const md =
+`## M5B Submission — Scenario ${x.n}: ${x.t}
+
+**Shape:** ${x.s} ${SHAPE[x.s]}  ·  **Level:** ${d[0]} ${d[1]}
+
+**The problem.** ${x.p}
+**What I built.** ${x.b}
+**Script / resource.** ${x.c}
+**Done when.** ${x.w}
+
+### My skill
+\`\`\`
+skills/<my-skill>/
+  SKILL.md
+  scripts/ or resources/
+\`\`\`
+
+### Transcript 1 — it fires
+<paste>
+
+### Transcript 2 — it stays dormant
+<paste>
+
+### Token report from skill_runner.py
+<paste>
+
+### Three sentences
+1. Why this is a skill and not a prompt:
+2. Its narrow scope is:
+3. What I pushed into code instead of the model:
+`;
+  navigator.clipboard.writeText(md).then(
+    ()=>document.getElementById("okMsg").textContent = "Copied — paste it into your issue.",
+    ()=>document.getElementById("okMsg").textContent = "Copy failed — select the text manually."
+  );
+};
+
+document.getElementById("close").onclick = ()=>dlg.close();
+document.getElementById("clear").onclick = ()=>{ localStorage.removeItem(KEY); render(); };
+
+document.getElementById("spin").onclick = ()=>{
+  const roll = document.getElementById("roll"), txt = document.getElementById("rollText");
+  roll.classList.add("show");
+  let i=0;
+  const timer = setInterval(()=>{
+    txt.textContent = S[Math.floor(Math.random()*S.length)].t;
+    if(++i>14){
+      clearInterval(timer);
+      const pick = S[Math.floor(Math.random()*S.length)];
+      txt.textContent = `#${pick.n} — ${pick.t}`;
+      const card = grid.querySelector(`.card[data-n="${pick.n}"]`);
+      if(card){ card.classList.add("flash"); card.scrollIntoView({behavior:"smooth",block:"center"}); }
+      setTimeout(()=>openCard(pick), 450);
+    }
+  }, 70);
+};
+
+render();
+</script>
+</body>
+</html>

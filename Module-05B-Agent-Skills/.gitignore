@@ -1,0 +1,15 @@
+# Artifacts your skills produce during the lab — yours, not the repo's.
+output/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Demo 3 (artifacts-builder) scaffolds a React project — node_modules is ~200 MB.
+# Keep bundle.html if you want the finished artifact in the repo; drop the rest.
+demos/artifact-demo/node_modules/
+demos/artifact-demo/dist/
+demos/artifact-demo/.parcel-cache/
+demos/*/node_modules/
