@@ -49,8 +49,30 @@ cd Module-05B-Agent-Skills\skill-runner
 | 2 | **`skill-runner/`** | Run a working skills runtime. Watch progressive disclosure pay for itself in tokens. | 30 min |
 | 3 | **`skill-runner/skills/`** | Three reference skills to read and copy from. | — |
 | 4 | **`scenarios/`** | Claim one of 15 scenarios. Build your skill. Show it. | 45 min |
+| 5 | **`bridge-project/`** | **This week's bridge project** — forge a skill and ship it to the shared library. | ~3 h, during the week |
 
 **Every folder has its own README. That README is your worksheet.**
+
+---
+
+## 🔥 This week's bridge project
+
+**[→ bridge-project/THE-BRIEF.md](bridge-project/THE-BRIEF.md)**
+
+Build a skill that solves a real problem *you* have, prove it works **and** that
+it stays quiet when it should, then ship it to the shared library:
+
+### **[jhf-skills.azurewebsites.net](https://jhf-skills.azurewebsites.net)**
+
+This time you don't submit an issue — you open a **pull request**. An issue is a
+conversation that gets closed; a pull request is files that get merged and stay
+installable by everyone, forever. The library outlives the course.
+
+**[→ How to upload your skill, step by step](https://github.com/Alaaldin97/Agentic-AI-Skill-Foundry/blob/main/UPLOAD-A-SKILL.md)** — includes a no-terminal route.
+
+**Due before Session 7.**
+
+---
 
 Also here:
 
