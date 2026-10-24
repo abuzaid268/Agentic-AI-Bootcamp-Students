@@ -1,0 +1,30 @@
+# Simulated systems for the Trip Planner mini-project.
+# Run:  docker compose up --build        ->  travel API on http://localhost:8103
+services:
+  travel-api:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+    ports:
+      - "8103:8103"
+    environment:
+      TRAVEL_API_KEY: ${TRAVEL_API_KEY:-dev-key-change-me}
+      TRAVEL_MODE: ${TRAVEL_MODE:-replay}
+      TRAVEL_TODAY: ${TRAVEL_TODAY:-}
+      TRAVEL_OVERLAYS: ${TRAVEL_OVERLAYS:-}
+      TRAVEL_CONTACT: ${TRAVEL_CONTACT:-}
+    # Keep what record mode writes on your disk:
+    # volumes:
+    #   - ./services/cache:/app/services/cache
+
+  # Your own service (the API contract on port 8000). Uncomment when you have a Dockerfile at the repo root.
+  # app:
+  #   build: .
+  #   ports:
+  #     - "8000:8000"
+  #   env_file: .env
+  #   environment:
+  #     TRAVEL_API_URL: http://travel-api:8103
+  #   depends_on:
+  #     travel-api:
+  #       condition: service_healthy

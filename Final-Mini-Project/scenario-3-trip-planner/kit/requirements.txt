@@ -1,0 +1,15 @@
+# One venv for the kit and your agent: these pins co-install with the course's Module 2 venv
+# (Python 3.12). Tested together with `pip check` clean.
+
+# Simulated travel API (services/)
+fastapi==0.141.1
+uvicorn==0.52.1
+httpx==0.28.1
+# MCP server and client (the Module 5 1.x API). 1.28.1 is the version CrewAI 1.15 requires.
+mcp==1.28.1
+# UI starter (ui/app_ui.py)
+gradio==6.30.0
+
+# Your agent framework (the versions the course used)
+crewai==1.15.10
+openai==2.52.0
