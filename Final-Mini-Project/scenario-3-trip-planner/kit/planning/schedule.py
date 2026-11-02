@@ -179,11 +179,17 @@ class ScheduleRules(BaseModel):
     durations: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_DURATIONS))
     lunch: tuple[Time, Time] = ("12:00", "14:30")  # soft: a meal outside these is a warning, not an error
     dinner: tuple[Time, Time] = ("18:30", "21:00")
+    # A later start on particular dates (ISO date -> HH:MM), e.g. the traveller's "start Day 2 at 10 AM". Only
+    # later than day_start: the planning day itself (and every check against it) is unchanged.
+    day_starts: dict[str, Time] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _window(self) -> ScheduleRules:
         if self.day_end <= self.day_start:
             raise ValueError(f"day_end {self.day_end} must be after day_start {self.day_start}")
+        for day, start in self.day_starts.items():
+            if not self.day_start <= start < self.day_end:
+                raise ValueError(f"the start {start} for {day} must be within {self.day_start}-{self.day_end}")
         if any(m < 1 for m in self.durations.values()):
             raise ValueError("durations must be at least 1 minute")
         return self
@@ -192,6 +198,9 @@ class ScheduleRules(BaseModel):
     def from_trip(cls, trip: TripRequest, **overrides) -> ScheduleRules:
         return cls(day_start=trip.day_start, day_end=trip.day_end, max_walk_minutes=trip.max_walk_minutes,
                    **overrides)
+
+    def start_for(self, day: dt.date) -> str:
+        return self.day_starts.get(str(day), self.day_start)
 
     def duration_for(self, stop: Stop) -> int:
         return self.durations.get(stop.kind or "", CATEGORY_DURATIONS[stop.category])
@@ -382,7 +391,7 @@ def schedule_day(day: dt.date, stops: Sequence[Stop], rules: ScheduleRules, trav
     is open, never past the planning day. A stop that is closed or does not fit is reported, not moved."""
     out: list[ScheduledStop] = []
     issues: list[Issue] = []
-    clock, day_end = to_minutes(rules.day_start), to_minutes(rules.day_end)
+    clock, day_end = to_minutes(rules.start_for(day)), to_minutes(rules.day_end)
     prev: Stop | None = None
     seen: set[str] = set()
     for stop in stops:
@@ -418,8 +427,8 @@ def schedule_day(day: dt.date, stops: Sequence[Stop], rules: ScheduleRules, trav
                                  wait_minutes=start - arrive, **common))
         issues += _stop_warnings(stop, hours, leg, start, rules, day)
         prev, clock = stop, end
-    return DaySchedule(date=day, weekday=WEEKDAYS[day.weekday()], day_start=rules.day_start, day_end=rules.day_end,
-                       stops=out, issues=issues)
+    return DaySchedule(date=day, weekday=WEEKDAYS[day.weekday()], day_start=rules.start_for(day),
+                       day_end=rules.day_end, stops=out, issues=issues)
 
 
 def _stop_warnings(stop: Stop, hours: DayHours, leg: TravelLeg | None, start: int, rules: ScheduleRules,

@@ -169,7 +169,16 @@ def test_valid_approval():
             },
         )
 
-        assert second_response.status_code == 404
+        # A repeat returns the trip already saved for that approval: never a second saved trip.
+        assert second_response.status_code == 200
+        assert second_response.json()["already_approved"] is True
+        assert second_response.json()["trip"]["trip_id"] == "TRIP-100"
+        save_mock.assert_called_once()
+
+        # Another action id is still refused: nothing is pending any more.
+        third = client.post("/api/approve", json={"session_id": "test-session", "action_id": "other-id",
+                                                  "approved": True})
+        assert third.status_code == 404
         save_mock.assert_called_once()
 
 

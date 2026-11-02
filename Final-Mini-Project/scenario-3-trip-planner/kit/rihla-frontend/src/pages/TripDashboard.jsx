@@ -1,12 +1,16 @@
 import { buildTripView, FALLBACK_IMAGE, formatDate, formatMoney } from '../services/itineraryAdapter'
-import { getVerificationState, isValidTripResult, summarizeBudget, summarizeDensity } from '../services/tripResult'
-import { isTripSaved, saveTrip } from '../services/savedTrips'
+import {
+  approvalBlockedReason, getVerificationState, isValidTripResult, summarizeBudget, summarizeDensity,
+} from '../services/tripResult'
+import { getSavedTrip, isTripSaved, markApproved, saveTrip } from '../services/savedTrips'
+import { approveTrip, reviseTrip } from '../services/tripApi'
+import { applyRevision, revisionBlockedReason } from '../services/tripRevision'
 import { SAMPLE_HERO_IMAGE, SAMPLE_TRIP } from '../data/sampleTrip'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3, ExternalLink, FlaskConical,
-  MapPin, Send, ShieldAlert, ShieldCheck, Sparkles, TriangleAlert, Wallet,
+  Loader2, MapPin, Send, ShieldAlert, ShieldCheck, Sparkles, TriangleAlert, Wallet,
   Users, Plane, ChevronRight, Download, Bookmark, BookmarkCheck, Footprints, Map as MapIcon,
 } from 'lucide-react'
 
@@ -83,6 +87,7 @@ function NoTrip() {
 
 export default function TripDashboard() {
   const location = useLocation()
+  const navigate = useNavigate()
   const trip = location.state || {}
   const aiResult = trip.aiResult
   const isSample = trip.sample === true && !aiResult
@@ -124,35 +129,121 @@ export default function TripDashboard() {
       setSaveError(err instanceof Error ? err.message : 'The trip could not be saved.')
     }
   }
+
+  // Approval: only for a verified itinerary with the backend's save_trip action. The trip counts as approved
+  // only after the backend confirmed it saved the trip in the Rihla Trip Store.
+  const [approval, setApproval] = useState(
+    () => aiResult?.approval || (isReal ? getSavedTrip(tripId)?.approval : null) || null,
+  )
+  const [approving, setApproving] = useState(false)
+  const [approveError, setApproveError] = useState('')
+  const [approveNote, setApproveNote] = useState('')
+  const actionId = aiResult?.pending_action?.type === 'save_trip' ? aiResult.pending_action.action_id : null
+  const canApprove = isReal && verification.level === 'verified' && Boolean(actionId) && !approval
+
+  const handleApprove = async () => {
+    if (!canApprove || approving) return // one approval at a time
+    setApproving(true)
+    setApproveError('')
+    try {
+      const { trip: savedTrip, alreadyApproved } = await approveTrip(tripId, actionId)
+      const local = { trip_id: savedTrip.trip_id, approvedAt: new Date().toISOString() }
+      try {
+        markApproved(aiResult, trip, savedTrip)
+        setSaved(true)
+      } catch {
+        // the backend saved it; only the local copy failed (storage blocked): My Trips still lists it
+      }
+      setApproval(local)
+      setApproveNote(alreadyApproved
+        ? `This trip was already approved and saved. Trip ID: ${savedTrip.trip_id}.`
+        : `Approved and saved to My Trips. Trip ID: ${savedTrip.trip_id}.`)
+    } catch (err) {
+      setApproveError(err instanceof Error ? err.message : 'The trip could not be approved.')
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  const [pdfError, setPdfError] = useState('')
+  const handlePdf = async () => {
+    setPdfError('')
+    try {
+      // loaded on first use: the PDF library is not part of the page's own bundle
+      const { downloadItineraryPdf } = await import('../services/pdfExport')
+      downloadItineraryPdf({ aiResult, request: trip, approval })
+    } catch (err) {
+      setPdfError(err instanceof Error ? `The PDF could not be created: ${err.message}` : 'The PDF could not be created.')
+    }
+  }
+  // Change requests: sent to the backend, which revises the plan it keeps for this session and verifies it
+  // again. Only a revised itinerary replaces the one on screen; anything else leaves it as it is.
+  const revisionBlocked = revisionBlockedReason(aiResult, { sample: isSample, approved: Boolean(approval) })
   const [message, setMessage] = useState('')
+  const [revising, setRevising] = useState(false)
   const [messages, setMessages] = useState(() => [
     {
       role: 'assistant',
       text: isSample
         ? 'This is a sample Istanbul trip for previewing the dashboard. It was not planned for you.'
-        : `Your ${destination} itinerary is ready to review. Check the verification status and any warnings before relying on it.`,
+        : `Your ${destination} itinerary is ready to review. Check the verification status and any warnings before relying on it.`
+          + (revisionBlocked ? '' : ' You can ask me for changes, for example "Reduce my budget by 20%" or "Remove the museum on Day 2".'),
     },
   ])
+  const chatEnd = useRef(null)
+  useEffect(() => {
+    chatEnd.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+  }, [messages, revising])
 
   if (!isReal && !isSample) return <NoTrip />
 
   const day = view.days[Math.min(activeDay, view.days.length - 1)]
 
-  const sendMessage = (event) => {
+  const sendMessage = async (event) => {
     event.preventDefault()
-    if (!message.trim()) return
-
-    setMessages((previous) => [
-      ...previous,
-      { role: 'user', text: message },
-      {
-        role: 'assistant',
-        text: isSample
-          ? 'Sample mode: the assistant is not connected.'
-          : "Changes from this chat aren't connected yet. To change the trip, plan it again from the home page.",
-      },
-    ])
+    const text = message.trim()
+    if (!text || revising) return // one change at a time
     setMessage('')
+    if (revisionBlocked) {
+      setMessages((previous) => [...previous, { role: 'user', text }, { role: 'assistant', text: revisionBlocked }])
+      return
+    }
+
+    setMessages((previous) => [...previous, { role: 'user', text }])
+    setRevising(true)
+    try {
+      const response = await reviseTrip(tripId, text, aiResult.plan_version)
+      const next = applyRevision(aiResult, response)
+      if (next.result) {
+        // The revised itinerary replaces the old one everywhere on the page (and survives a refresh). Its
+        // approval is the backend's new one, or none: the previous version's approval no longer applies.
+        const request = { ...trip, aiResult: next.result, budget: next.result.itinerary.budget_total ?? trip.budget }
+        navigate('/trip', { replace: true, state: request })
+        setApproval(null)
+        setApproveNote('')
+        setApproveError('')
+        setPdfError('')
+        setActiveDay((current) => Math.min(current, next.result.itinerary.days.length - 1))
+        if (saved) {
+          try {
+            saveTrip(next.result, request) // the draft in this browser is the latest version too
+          } catch (err) {
+            setSaveError(err instanceof Error ? err.message : 'The saved draft could not be updated.')
+          }
+        }
+      }
+      setMessages((previous) => [...previous, {
+        role: 'assistant', text: next.reply, changes: next.changes, moreChanges: next.moreChanges,
+        outcome: next.outcome,
+      }])
+    } catch (err) {
+      setMessages((previous) => [...previous, {
+        role: 'assistant', error: true,
+        text: err instanceof Error ? err.message : 'The change failed. Your itinerary was not changed.',
+      }])
+    } finally {
+      setRevising(false)
+    }
   }
 
   const BadgeIcon = verification.level === 'verified' ? ShieldCheck : verification.level === 'sample' ? FlaskConical : ShieldAlert
@@ -180,23 +271,25 @@ export default function TripDashboard() {
             <div className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <p className="text-[#8297a0]">Destination</p>
-                <p className="mt-1 font-semibold">{trip.destination || 'Not selected'}</p>
+                <p className="mt-1 font-semibold">{trip.destination || view.destination || 'Not selected'}</p>
               </div>
               <div>
                 <p className="text-[#8297a0]">Travel dates</p>
                 <p className="mt-1 font-semibold">
                   {trip.departureDate && trip.returnDate
                     ? `${trip.departureDate} to ${trip.returnDate}`
-                    : 'Not selected'}
+                    : view.startDate ? `${view.startDate} to ${view.endDate}` : 'Not selected'}
                 </p>
               </div>
               <div>
                 <p className="text-[#8297a0]">Travellers</p>
-                <p className="mt-1 font-semibold">{trip.travellers || 'Not selected'}</p>
+                <p className="mt-1 font-semibold">{trip.travellers || view.travellers || 'Not selected'}</p>
               </div>
               <div>
                 <p className="text-[#8297a0]">Budget</p>
-                <p className="mt-1 font-semibold">{trip.budget ? `$${trip.budget}` : 'Not selected'}</p>
+                <p className="mt-1 font-semibold">
+                  {trip.budget ? `$${trip.budget}` : Number.isFinite(view.budgetTotal) ? money(view.budgetTotal) : 'Not selected'}
+                </p>
               </div>
             </div>
 
@@ -329,7 +422,9 @@ export default function TripDashboard() {
               className="inline-flex items-center gap-2 rounded-2xl bg-[#245c6a] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#347989] disabled:cursor-default disabled:bg-emerald-600"
             >
               {saved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}
-              {saved ? 'Saved in this browser' : 'Save trip to this browser'}
+              {saved
+                ? (approval ? 'Saved in My Trips' : 'Saved as a draft in this browser')
+                : (verification.level === 'verified' ? 'Save as a draft' : 'Save as a draft (not verified)')}
             </button>
           )}
           <a
@@ -338,20 +433,28 @@ export default function TripDashboard() {
           >
             <Bookmark size={17} /> My Trips
           </a>
-          <button
-            type="button"
-            disabled
-            title="PDF export is coming soon"
-            className="inline-flex cursor-not-allowed items-center gap-2 rounded-2xl bg-[#dce9eb] px-5 py-3 text-sm font-semibold text-[#819ba3]"
-          >
-            <Download size={17} /> Download PDF · Coming soon
-          </button>
+          {isReal && (
+            <button
+              type="button"
+              onClick={handlePdf}
+              title={approval || verification.level === 'verified' ? 'Download this itinerary as a PDF'
+                : 'Download a draft PDF, marked "Draft - Not Verified"'}
+              className="inline-flex items-center gap-2 rounded-2xl border border-[#d5e6e9] bg-white px-5 py-3 text-sm font-semibold text-[#245c6a] transition hover:bg-[#e7f3f4]"
+            >
+              <Download size={17} />
+              {approval || verification.level === 'verified' ? 'Download PDF' : 'Download draft PDF'}
+            </button>
+          )}
           {saveError && (
             <p role="alert" className="w-full text-sm text-red-700">{saveError}</p>
           )}
-          {isReal && !saveError && (
+          {pdfError && (
+            <p role="alert" className="w-full text-sm text-red-700">{pdfError}</p>
+          )}
+          {isReal && !saveError && !approval && (
             <p className="w-full text-xs text-[#8297a0]">
-              Saved trips stay in this browser on this device only. They are not synced to an account.
+              A draft stays in this browser on this device only. Approving a verified trip saves it to your trips
+              in the Rihla Trip Store.
             </p>
           )}
         </div>
@@ -591,52 +694,101 @@ export default function TripDashboard() {
                 {messages.map((item, index) => (
                   <div
                     key={index}
+                    role={item.error ? 'alert' : undefined}
                     className={`max-w-[95%] rounded-2xl p-3 text-sm leading-6 ${
                       item.role === 'user'
                         ? 'self-end bg-[#245c6a] text-white'
-                        : 'self-start bg-[#edf5f6] text-[#476774]'
+                        : item.error
+                          ? 'self-start bg-red-50 text-red-700'
+                          : 'self-start bg-[#edf5f6] text-[#476774]'
                     }`}
                   >
                     {item.text}
+                    {item.changes?.length > 0 && (
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5">
+                        {item.changes.map((change) => <li key={change}>{change}</li>)}
+                        {item.moreChanges > 0 && <li>and {item.moreChanges} more</li>}
+                      </ul>
+                    )}
                   </div>
                 ))}
+                {revising && (
+                  <div role="status" className="flex items-center gap-2 self-start rounded-2xl bg-[#edf5f6] p-3 text-sm text-[#476774]">
+                    <Loader2 size={15} className="animate-spin" /> Updating your itinerary...
+                  </div>
+                )}
+                <div ref={chatEnd} />
               </div>
 
               <form onSubmit={sendMessage} className="flex gap-2 border-t border-[#edf2f3] p-4">
                 <input
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
-                  placeholder="Ask for a change..."
-                  className="min-w-0 flex-1 rounded-xl bg-[#f1f7f8] px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#a9d7dc]"
+                  placeholder={revising ? 'Updating your itinerary...' : 'Ask for a change...'}
+                  disabled={revising}
+                  maxLength={1000}
+                  className="min-w-0 flex-1 rounded-xl bg-[#f1f7f8] px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#a9d7dc] disabled:opacity-60"
                 />
                 <button
                   type="submit"
                   aria-label="Send message"
-                  className="rounded-xl bg-[#245c6a] p-3 text-white transition hover:bg-[#347989]"
+                  disabled={revising || !message.trim()}
+                  aria-busy={revising}
+                  className="rounded-xl bg-[#245c6a] p-3 text-white transition hover:bg-[#347989] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Send size={18} />
+                  {revising ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                 </button>
               </form>
+              {revisionBlocked && !isSample && (
+                <p className="px-4 pb-4 text-xs leading-5 text-[#91a3ab]">{revisionBlocked}</p>
+              )}
             </section>
 
             <section className="rounded-[28px] border border-[#e0ebed] bg-white p-6 shadow-sm">
               <h2 className="mb-2 text-lg font-bold">Ready for your adventure?</h2>
               <p className="mb-5 text-sm leading-6 text-[#8297a0]">
-                {verification.level === 'verified'
-                  ? 'This itinerary passed verification. Approving and saving from the dashboard is not connected yet.'
-                  : verification.level === 'sample'
-                    ? 'The sample trip cannot be approved.'
-                    : 'Approval is only possible once the itinerary passes verification.'}
+                {approval
+                  ? 'You approved this itinerary and it is saved in your trips.'
+                  : verification.level === 'verified'
+                    ? (actionId
+                      ? 'This itinerary passed verification. Approve it to save it to My Trips. Rihla never books or pays for anything.'
+                      : 'This itinerary passed verification, but there is no approval waiting for it. Plan the trip again to approve it.')
+                    : verification.level === 'sample'
+                      ? 'The sample trip cannot be approved.'
+                      : approvalBlockedReason(aiResult)}
               </p>
               <button
-                disabled
-                className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-2xl bg-[#dce9eb] px-5 py-4 text-sm font-bold text-[#819ba3]"
+                type="button"
+                onClick={handleApprove}
+                disabled={!canApprove || approving}
+                aria-busy={approving}
+                className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-bold transition ${
+                  canApprove && !approving
+                    ? 'bg-[#245c6a] text-white hover:bg-[#347989]'
+                    : approval
+                      ? 'cursor-default bg-emerald-600 text-white'
+                      : 'cursor-not-allowed bg-[#dce9eb] text-[#819ba3]'
+                }`}
               >
-                <CheckCircle2 size={18} /> Approve itinerary
+                <CheckCircle2 size={18} />
+                {approval ? 'Approved' : approving ? 'Approving…' : 'Approve itinerary'}
               </button>
-              <p className="mt-3 text-center text-xs text-[#91a3ab]">
-                Approval unavailable
-              </p>
+              {approveNote && (
+                <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-center text-sm font-semibold text-emerald-700">
+                  {approveNote}
+                </p>
+              )}
+              {approval && !approveNote && (
+                <p className="mt-3 text-center text-xs text-emerald-700">Saved trip ID: {approval.trip_id}</p>
+              )}
+              {approveError && (
+                <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-center text-sm text-red-700">
+                  {approveError}
+                </p>
+              )}
+              {!canApprove && !approval && !approveError && (
+                <p className="mt-3 text-center text-xs text-[#91a3ab]">Approval unavailable</p>
+              )}
             </section>
           </aside>
         </div>

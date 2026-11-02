@@ -92,10 +92,10 @@ def test_revision_without_existing_itinerary():
         research_mock.assert_not_called()
 
 
-def test_revision_agent_not_connected():
+def test_revision_without_a_kept_plan_changes_nothing():
     """
-    An existing itinerary must remain unchanged
-    when the revision agent is unavailable.
+    An itinerary with no plan kept in session memory (an older session,
+    a restarted server) is never revised: the traveller is told why.
     """
 
     sessions.clear()
@@ -131,7 +131,9 @@ def test_revision_agent_not_connected():
             session_id=session_id,
         )
 
-        assert result["status"] == "revision_not_supported"
+        assert result["status"] == "needs_clarification"
+        assert "no existing itinerary to revise" in result["message"]
+        assert "itinerary" not in result
 
         assert session["itinerary"] == original_itinerary
 

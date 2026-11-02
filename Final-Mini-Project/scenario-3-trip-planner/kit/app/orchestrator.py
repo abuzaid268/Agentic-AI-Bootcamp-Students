@@ -7,7 +7,7 @@ from app.mock_agents import research_trip, plan_trip, verify_trip
 from app.planning_adapter import run_planning_pipeline, create_planning_llm
 from app.mcp_lookup_adapter import create_hours_lookup, create_travel_lookup, max_walk_minutes
 from app.verification_adapter import run_verification_pipeline
-from app.revision import RevisionNotAvailableError, revise_itinerary
+from app.revision import plan_state_from, run_trip_revision
 from app.verification_loop import verify_with_retries
 from planning.research import ResearchBundle
 from app.research_adapter import ResearchInputError, run_research_pipeline
@@ -212,6 +212,8 @@ def orchestrate_trip(
     session_id: str | None = None,
     research_bundle: ResearchBundle | None = None,
     trip_form: dict | None = None,
+    base_version: str | None = None,
+    revision_request: bool = False,
 ) -> dict:
     """
     Coordinate the trip planning workflow.
@@ -252,64 +254,25 @@ def orchestrate_trip(
 
     intent = trip_info["intent"]
     print(f"1. Coordinator detected intent: {intent}")
+    # The dashboard's "Ask for a change" box only sends changes to the plan on screen: never a new trip.
+    if revision_request and session is not None and session.get("plan_state") is not None \
+            and intent != "revise_trip":
+        print(f"   change box: treated as a revision (the Coordinator said {intent})")
+        intent = "revise_trip"
 
-    # STEP 3: Handle revision requests
+    # STEP 3: Handle revision requests: the plan kept in this session is revised in place (targeted changes,
+    # the Revision Agent for the choices, then the same verification as a new plan). See app/revision.py.
     if intent == "revise_trip":
-        if session is None or session.get("itinerary") is None:
+        if session is None or session.get("plan_state") is None:
             return {
                 "status": "needs_clarification",
-                "message": "There is no existing itinerary to revise.",
-            }
-
-        try:
-            revised_itinerary = revise_itinerary(
-                current_itinerary=deepcopy(session["itinerary"]),
-                user_request=user_request,
-            )
-        except RevisionNotAvailableError:
-            return {
-                "status": "revision_not_supported",
                 "message": (
-                    "Revision was requested, but the real revision "
-                    "agent is not connected yet. "
-                    "Your existing itinerary has not been changed."
+                    "There is no existing itinerary to revise in this session. Plan a trip first, then ask "
+                    "for changes."
                 ),
+                "revision": {"outcome": "no_plan"},
             }
-
-        # A revision must still be a useful trip. Without the research
-        # context from planning, coverage cannot be confirmed: fail closed.
-        context = session.get("coverage_context")
-        if context is None:
-            return {
-                "status": "needs_revision",
-                "message": (
-                    "The revised itinerary's coverage cannot be checked "
-                    "for this trip. Your existing itinerary has not been changed."
-                ),
-            }
-
-        coverage = assess_store_coverage(revised_itinerary, context)
-        print("\n".join(coverage_summary(coverage)))
-
-        if not coverage.sufficient:
-            return {
-                "status": "needs_revision",
-                "message": coverage.insufficient_message(),
-                "coverage": coverage.as_dict(),
-            }
-
-        # Real verification is not connected yet.
-        # Never approve a revision using the mock verifier.
-        return {
-            "status": "verification_required",
-            "message": _with_warning(
-                "The revised itinerary was generated, but real "
-                "verification is required before approval.",
-                coverage.warning(),
-            ),
-            "itinerary": revised_itinerary,
-            "coverage": coverage.as_dict(),
-        }
+        return run_trip_revision(session, user_request, previous_trip_details, base_version=base_version)
 
     # STEP 4: Approval must use /api/approve
     if intent == "approve_trip":
@@ -544,6 +507,23 @@ def orchestrate_trip(
         notes = " ".join(filter(None, [coverage.warning(), density.message()])) or None
         summary = traveller_summary(trip_info, planning_result["budget_report"],
                                     planning_result.get("planner_report"), final_model)
+
+        # Session memory for later revisions: the whole plan, so a change needs no new research or plan.
+        plan_version = None
+        if session is not None:
+            repair = verification_result.get("revision_report")
+            kept_planner = (repair.result.planner_report
+                            if repair is not None and repair.result.planner_report is not None
+                            else planning_result["planner_report"])
+            try:
+                state = plan_state_from(research_bundle, planning_result["budget_report"], kept_planner,
+                                        final_model or planning_result["itinerary_model"])
+            except Exception as exc:  # the plan stands; only later revisions are unavailable (said when asked)
+                print("Plan not kept for revisions:", type(exc).__name__)
+                session.pop("plan_state", None)
+            else:
+                session["plan_state"] = state
+                plan_version = state.version
         print("=== TRAVELLER SUMMARY ===")
         print(summary)
         print("=========================")
@@ -564,6 +544,7 @@ def orchestrate_trip(
                 "summary": summary,
                 "verification": verification_summary(verification_result),
                 "budget": budget_summary(planning_result["budget_report"]),
+                "plan_version": plan_version,
             }
 
         return {
@@ -583,6 +564,7 @@ def orchestrate_trip(
             "summary": summary,
             "verification": verification_summary(verification_result),
             "budget": budget_summary(planning_result["budget_report"]),
+            "plan_version": plan_version,
         }
 
        # STEP 9: Safety fallback

@@ -33,6 +33,10 @@ class ChatRequest(BaseModel):
     session_id: str = Field(min_length=1)
     message: str = Field(min_length=1)
     trip: TripForm | None = None  # the structured form, when the request comes from the trip form
+    # A change request from the dashboard: the plan version it was made on (see ChatResponse.plan_version). A
+    # request on an older version than the session's is refused rather than applied to the wrong plan.
+    base_version: str | None = Field(default=None, max_length=40)
+    revision: bool = False  # sent by the dashboard's "Ask for a change" box
 
 
 class ChatResponse(BaseModel):
@@ -47,6 +51,8 @@ class ChatResponse(BaseModel):
     summary: dict[str, Any] | None = None  # orchestrator.traveller_summary(): interest coverage and limitations
     verification: dict[str, Any] | None = None  # orchestrator.verification_summary(): Python's verdict and findings
     budget: dict[str, Any] | None = None  # orchestrator.budget_summary(): known, unknown and not-included costs
+    plan_version: str | None = None  # the session's plan this response shows: send it back as base_version
+    revision: dict[str, Any] | None = None  # app/revision.py: outcome, changes, unchanged dates, who chose
 
 
 class ErrorBody(BaseModel):

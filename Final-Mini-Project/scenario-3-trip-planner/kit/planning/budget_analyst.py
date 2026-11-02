@@ -1037,7 +1037,8 @@ def top_up(cands: CandidateSet, selected: list[PlannedItem],
     return selected, pool, notes
 
 
-def apply_decision(cands: CandidateSet, decision: BudgetDecision, *, run: CrewRun | None = None) -> BudgetReport:
+def apply_decision(cands: CandidateSet, decision: BudgetDecision, *, run: CrewRun | None = None,
+                   fill: bool = True) -> BudgetReport:
     """Validate the agent's decision again, fit the plan to the budget in Python, and build the report.
 
     The plan is required + include. Optional places are alternatives: priced and checked, never counted.
@@ -1081,7 +1082,8 @@ def apply_decision(cands: CandidateSet, decision: BudgetDecision, *, run: CrewRu
             break
         dropped.append(keep.pop(paid[-1]))
     # The budget binds when the analyst's own includes had to go: then no alternative is added back.
-    selected, alternatives, promotions = ((required + keep, alternatives, []) if dropped or infeasible
+    # fill=False (a traveller's revision): the plan is exactly what was decided, nothing is added to it.
+    selected, alternatives, promotions = ((required + keep, alternatives, []) if dropped or infeasible or not fill
                                           else top_up(cands, required + keep, alternatives))
     plan_ids = [i.place_id for i in selected]
     final = check_selection(cands, plan_ids)

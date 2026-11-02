@@ -1,6 +1,7 @@
 // Statuses for which POST /api/chat returns a freshly generated itinerary.
 // See app/main.py: "pending_approval" is only set after trusted verification.
-const ITINERARY_STATUSES = new Set(['pending_approval', 'verification_required'])
+// "approved": a trip saved in the Rihla Trip Store after approval (opened from My Trips).
+const ITINERARY_STATUSES = new Set(['pending_approval', 'verification_required', 'approved'])
 
 function incomplete(what) {
   return new Error(
@@ -64,6 +65,14 @@ export function isValidTripResult(result) {
 export function getVerificationState(result) {
   const action = result?.pending_action
 
+  if (result?.status === 'approved' && result?.approval?.trip_id) {
+    return {
+      level: 'verified',
+      label: `Approved · Saved trip ${result.approval.trip_id}`,
+      detail: result.message || 'This trip passed verification, you approved it, and it is saved in your trips.',
+    }
+  }
+
   if (
     result?.status === 'pending_approval'
     && action?.type === 'save_trip'
@@ -120,4 +129,27 @@ export function summarizeBudget(budgetTotal, estimatedTotal, unknownCostCount = 
     percentUsed,
     overBudget,
   }
+}
+
+// Why approval is not possible, in the verifier's own counts (app/orchestrator.verification_summary): the
+// itinerary is not hidden, but approving it would claim more than the evidence shows.
+export function approvalBlockedReason(result) {
+  const v = result?.verification
+  if (!v) {
+    return 'Approval needs a verified itinerary, and this one could not be fully verified.'
+  }
+  const counts = v.counts || {}
+  const unknownCodes = new Set((v.findings || []).filter((f) => f.state === 'unverifiable').map((f) => f.code))
+  const what = []
+  if (unknownCodes.has('hours_unknown') || unknownCodes.has('hours_unconfirmed')) what.push('opening hours')
+  if (unknownCodes.has('cost_unknown') || unknownCodes.has('budget_undetermined')) what.push('prices')
+  if (unknownCodes.has('route_unknown') || unknownCodes.has('walk_unverified')) what.push('travel times')
+  const parts = []
+  if (counts.confirmed_problems) parts.push(`${counts.confirmed_problems} confirmed problem(s) must be fixed`)
+  if (counts.unverifiable) {
+    parts.push(`${counts.unverifiable} fact(s) could not be confirmed from the sources`
+      + (what.length ? ` (${what.join(', ')})` : ''))
+  }
+  return `Approval needs a verified itinerary. ${parts.join('; ') || 'Verification is incomplete'}. `
+    + 'You can still save it as a draft or download it as a draft PDF.'
 }
