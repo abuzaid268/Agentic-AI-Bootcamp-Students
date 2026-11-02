@@ -174,6 +174,7 @@ export default function App() {
               </div>
             )}
             <a href="#planner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2 hover:bg-white/10">AI Trip Planner</a>
+            {user && <a href="/profile" className="rounded-xl px-3 py-2 hover:bg-white/10">My Profile</a>}
             <a href="/my-trips" className="rounded-xl px-3 py-2 hover:bg-white/10">My Trips</a>
             {user ? (
               <button

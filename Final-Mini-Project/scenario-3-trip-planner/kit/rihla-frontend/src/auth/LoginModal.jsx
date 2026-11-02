@@ -16,8 +16,8 @@ const COPY = {
   },
   protected: {
     eyebrow: 'PRIVATE TO YOUR ACCOUNT',
-    title: 'Log in to see your trips.',
-    text: 'My Trips and your itineraries are private. Sign in and Rihla takes you straight there.',
+    title: 'Log in to continue.',
+    text: 'Your trips, itineraries and profile are private. Sign in and Rihla takes you straight there.',
   },
   expired: {
     eyebrow: 'SESSION ENDED',
