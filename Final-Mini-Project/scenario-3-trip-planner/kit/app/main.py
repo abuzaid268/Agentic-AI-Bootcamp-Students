@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from app.schemas import ChatRequest, ChatResponse, ApproveRequest
 from app.memory import get_session
 from app.orchestrator import orchestrate_trip
-from app.trip_store import TripStoreError, save_trip_to_store
+from app.trip_store import TripStoreError, get_trip_from_store, list_trips_from_store, save_trip_to_store
 from app.diagnostics import classify_error, safe_traceback
 
 
@@ -43,6 +43,8 @@ def chat(request: ChatRequest):
             request.message,
             session_id=request.session_id,
             trip_form=request.trip.model_dump(mode="json") if request.trip else None,
+            base_version=request.base_version,
+            revision_request=request.revision,
         )
 
     except Exception as exc:
@@ -68,9 +70,13 @@ def chat(request: ChatRequest):
     itinerary = None
     pending_action = None
 
-    # Invalidate any previous approval request when processing
-    # a new trip result.
+    # Invalidate any previous approval request when processing a new trip result. A revision that changed
+    # nothing (a question, not feasible, a stale plan) keeps it: the plan on screen is still the one verified.
+    previous_pending = session.get("pending_action")
     session["pending_action"] = None
+    revision_info = result.get("revision") if isinstance(result.get("revision"), dict) else None
+    if revision_info is not None and revision_info.get("outcome") != "revised" and result.get("itinerary") is None:
+        session["pending_action"] = previous_pending
 
     verification_result = result.get("verification_result")
     verifier_report = (
@@ -165,6 +171,8 @@ def chat(request: ChatRequest):
         else None,
         verification=deepcopy(result.get("verification")) if itinerary is not None else None,
         budget=deepcopy(result.get("budget")) if itinerary is not None else None,
+        plan_version=result.get("plan_version"),
+        revision=deepcopy(revision_info),
     )
 
 
@@ -177,6 +185,17 @@ def approve(request: ApproveRequest):
     with _approval_lock:
         session = get_session(request.session_id)
         pending = session.get("pending_action")
+
+        # The same approval twice (a double click, a retry after a lost response) returns the trip already
+        # saved for it: never a second trip. Only an approved and saved action is remembered here.
+        done = session.get("approved_actions", {}).get(request.action_id)
+        if done is not None and request.approved:
+            return {
+                "status": "approved",
+                "message": "This trip was already approved and saved.",
+                "trip": deepcopy(done),
+                "already_approved": True,
+            }
 
         if pending is None:
             raise HTTPException(
@@ -241,7 +260,8 @@ def approve(request: ApproveRequest):
         if not traveller_id:
             raise HTTPException(
                 status_code=503,
-                detail="Traveller ID is not configured.",
+                detail=("Traveller ID is not configured: set TRAVEL_TRAVELLER_ID on the server (the Trip "
+                        "Store traveller trips are saved for). The trip was not saved."),
             )
 
         try:
@@ -261,9 +281,54 @@ def approve(request: ApproveRequest):
         # Clear pending action only after confirmed save.
         session["pending_action"] = None
         session["saved_trip"] = saved_trip
+        session.setdefault("approved_actions", {})[request.action_id] = deepcopy(saved_trip)
 
         return {
             "status": "approved",
             "message": "Trip saved successfully.",
             "trip": saved_trip,
         }
+
+
+MAX_LISTED_TRIPS = 50  # newest first
+
+
+def _store_traveller() -> str:
+    traveller_id = os.getenv("TRAVEL_TRAVELLER_ID", "").strip()
+    if not traveller_id:
+        raise HTTPException(
+            status_code=503,
+            detail=("Saved trips are not available: TRAVEL_TRAVELLER_ID is not configured on the server."),
+        )
+    return traveller_id
+
+
+@app.get("/api/trips")
+def list_trips():
+    """The approved trips saved in the Rihla Trip Store for this server's traveller (summaries only)."""
+    traveller_id = _store_traveller()
+    try:
+        trips = list_trips_from_store(traveller_id)[:MAX_LISTED_TRIPS]
+    except TripStoreError as exc:
+        raise HTTPException(status_code=503, detail="The Trip Store could not be reached. Please try again.") from exc
+    # The store's summaries carry no traveller count: it comes from each trip's own itinerary (None if unreadable).
+    for trip in trips:
+        try:
+            record = get_trip_from_store(str(trip.get("trip_id")))
+        except TripStoreError:
+            record = None
+        trip["travellers"] = ((record or {}).get("itinerary") or {}).get("travellers")
+    return {"count": len(trips), "trips": trips}
+
+
+@app.get("/api/trips/{trip_id}")
+def get_trip(trip_id: str):
+    """One approved trip with its full itinerary, only if it belongs to this server's traveller."""
+    traveller_id = _store_traveller()
+    try:
+        trip = get_trip_from_store(trip_id)
+    except TripStoreError as exc:
+        raise HTTPException(status_code=503, detail="The Trip Store could not be reached. Please try again.") from exc
+    if trip is None or str(trip.get("traveller_id", "")).lower() != traveller_id.lower():
+        raise HTTPException(status_code=404, detail=f"No saved trip {trip_id}.")
+    return trip

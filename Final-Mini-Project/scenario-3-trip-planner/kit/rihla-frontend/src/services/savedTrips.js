@@ -71,8 +71,9 @@ export function summarizeSavedTrip(entry) {
     travellers: itinerary.travellers ?? null,
     budgetTotal: itinerary.budget_total ?? null,
     currency: itinerary.currency || 'USD',
-    verified: entry.aiResult.status === 'pending_approval'
-      && entry.aiResult.pending_action?.verification_status === 'verified',
+    verified: Boolean(entry.approval?.trip_id) || (entry.aiResult.status === 'pending_approval'
+      && entry.aiResult.pending_action?.verification_status === 'verified'),
+    approval: entry.approval || null,
   }
 }
 
@@ -93,11 +94,14 @@ export function saveTrip(aiResult, request, storage = defaultStorage(), now = ne
   }
 
   const id = String(aiResult.session_id || request?.sessionId || `trip-${now.getTime()}`)
+  const previous = readAll(storage).find((t) => t.id === id)
   const entry = {
     id,
     savedAt: now.toISOString(),
     request: requestFields(request),
     aiResult,
+    // an approval, once confirmed by the backend, is kept when the same trip is saved again
+    ...(previous?.approval ? { approval: previous.approval } : {}),
   }
 
   const others = readAll(storage).filter((t) => t.id !== id)
@@ -117,4 +121,15 @@ export function deleteSavedTrip(id, storage = defaultStorage()) {
 
 export function isTripSaved(id, storage = defaultStorage()) {
   return Boolean(id) && readAll(storage).some((t) => t.id === id)
+}
+
+// Record in this browser that the backend approved and saved the trip (only after the backend confirmed it).
+// The Trip Store is the record; this local copy keeps what the dashboard shows (interests, warnings) and lets
+// My Trips show the trip when the store cannot be reached.
+export function markApproved(aiResult, request, savedTrip, storage = defaultStorage(), now = new Date()) {
+  if (!savedTrip?.trip_id) throw new Error('The trip was not saved by the backend.')
+  const entry = saveTrip(aiResult, request, storage, now)
+  const approved = { ...entry, approval: { trip_id: savedTrip.trip_id, approvedAt: now.toISOString() } }
+  writeAll(storage, [approved, ...readAll(storage).filter((t) => t.id !== entry.id)])
+  return approved
 }

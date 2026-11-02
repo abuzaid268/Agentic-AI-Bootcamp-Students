@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
   CalendarDays,
   Compass,
+  Download,
   MapPin,
   Plane,
   Plus,
@@ -18,10 +19,12 @@ import {
 } from 'lucide-react'
 import { deleteSavedTrip, getSavedTrip, listSavedTrips, summarizeSavedTrip } from '../services/savedTrips'
 import { FALLBACK_IMAGE, formatDate, formatMoney } from '../services/itineraryAdapter'
+import { getApprovedTrip, listApprovedTrips } from '../services/tripApi'
+import { filterTrips, mergeTrips, STATUS_LABELS, storeTripResult } from '../services/myTrips'
 
 const FILTERS = ['All Trips', 'Verified', 'Not verified']
 
-function loadTrips() {
+function loadLocal() {
   return listSavedTrips().map(summarizeSavedTrip)
 }
 
@@ -34,39 +37,84 @@ export default function MyTrips() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState('All Trips')
-  const [trips, setTrips] = useState(loadTrips)
+  const [local, setLocal] = useState(loadLocal)
+  const [store, setStore] = useState({ trips: [], loading: true, error: '' })
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState('')
 
-  const filteredTrips = trips.filter((trip) => {
-    const matchesSearch = trip.destination.toLowerCase().includes(search.trim().toLowerCase())
-    const matchesStatus =
-      activeFilter === 'All Trips'
-      || (activeFilter === 'Verified' ? trip.verified : !trip.verified)
-
-    return matchesSearch && matchesStatus
-  })
-
-  const openTrip = (id) => {
-    const entry = getSavedTrip(id)
-    if (!entry) {
-      setError('That trip is no longer saved in this browser.')
-      setTrips(loadTrips())
-      return
+  // Approved trips come from the Rihla Trip Store through the backend: loaded on every visit and refresh.
+  const loadStore = useCallback(async () => {
+    setStore((s) => ({ ...s, loading: true }))
+    try {
+      setStore({ trips: await listApprovedTrips(), loading: false, error: '' })
+    } catch (err) {
+      setStore({ trips: [], loading: false, error: err instanceof Error ? err.message : 'Saved trips could not be loaded.' })
     }
-    navigate('/trip', {
-      state: { ...entry.request, sessionId: entry.id, aiResult: entry.aiResult, fromSaved: true },
-    })
+  }, [])
+  useEffect(() => {
+    let cancelled = false
+    listApprovedTrips()
+      .then((trips) => !cancelled && setStore({ trips, loading: false, error: '' }))
+      .catch((err) => !cancelled && setStore({
+        trips: [], loading: false, error: err instanceof Error ? err.message : 'Saved trips could not be loaded.',
+      }))
+    return () => { cancelled = true }
+  }, [])
+
+  const trips = mergeTrips(store.trips, local, { storeAvailable: !store.error })
+  const filteredTrips = filterTrips(trips, search, activeFilter)
+
+  // The full trip for the dashboard or the PDF: from the Trip Store for an approved trip (with this browser's
+  // copy for the request details), else this browser's draft.
+  const resolveTrip = async (card) => {
+    const entry = card.localId ? getSavedTrip(card.localId) : null
+    if (card.source === 'store') {
+      const record = await getApprovedTrip(card.tripId)
+      return { request: entry?.request || {}, aiResult: storeTripResult(record, entry), sessionId: card.tripId }
+    }
+    if (!entry) throw new Error('That trip is no longer saved in this browser.')
+    const aiResult = entry.approval ? { ...entry.aiResult, approval: entry.approval } : entry.aiResult
+    return { request: entry.request, aiResult, sessionId: entry.id }
+  }
+
+  const openTrip = async (card) => {
+    setError('')
+    setBusy(card.id)
+    try {
+      const { request, aiResult, sessionId } = await resolveTrip(card)
+      navigate('/trip', { state: { ...request, sessionId, aiResult, fromSaved: true } })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The trip could not be opened.')
+      setLocal(loadLocal())
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const downloadPdf = async (card) => {
+    setError('')
+    setBusy(card.id)
+    try {
+      const { request, aiResult } = await resolveTrip(card)
+      const { downloadItineraryPdf } = await import('../services/pdfExport')  // loaded on first use
+      downloadItineraryPdf({ aiResult, request, approval: aiResult.approval || null })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The PDF could not be created.')
+    } finally {
+      setBusy('')
+    }
   }
 
   const removeTrip = (trip) => {
+    if (!trip.localId) return
     if (!window.confirm(`Delete your ${trip.destination} trip from this browser? This cannot be undone.`)) return
     setError('')
     try {
-      deleteSavedTrip(trip.id)
+      deleteSavedTrip(trip.localId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The trip could not be deleted.')
     }
-    setTrips(loadTrips())
+    setLocal(loadLocal())
   }
 
   return (
@@ -140,7 +188,7 @@ export default function MyTrips() {
             </p>
             <h2 className="text-3xl font-bold tracking-tight">My Trips</h2>
             <p className="mt-2 text-sm text-[#8297a0]">
-              Saved in this browser on this device only · Not synced to an account.
+              Approved trips are saved in the Rihla Trip Store · Drafts stay in this browser only.
             </p>
           </div>
 
@@ -190,6 +238,15 @@ export default function MyTrips() {
             {error}
           </p>
         )}
+        {store.loading && (
+          <p role="status" className="mb-6 text-sm text-[#8297a0]">Loading your approved trips…</p>
+        )}
+        {store.error && (
+          <p role="alert" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Approved trips could not be loaded from the Trip Store: {store.error}{' '}
+            <button type="button" onClick={loadStore} className="font-semibold underline">Try again</button>
+          </p>
+        )}
 
         {/* TRIP CARDS */}
         {filteredTrips.length > 0 ? (
@@ -210,19 +267,20 @@ export default function MyTrips() {
 
                   <span
                     className={`absolute left-5 top-5 flex items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-bold backdrop-blur-xl ${
-                      trip.verified
+                      trip.status !== 'draft'
                         ? 'border-emerald-200 bg-emerald-50/90 text-emerald-700'
                         : 'border-amber-200 bg-amber-50/90 text-amber-700'
                     }`}
                   >
-                    {trip.verified ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
-                    {trip.verified ? 'Verified' : 'Not verified'}
+                    {trip.status !== 'draft' ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                    {STATUS_LABELS[trip.status]}
                   </span>
 
                   <div className="absolute bottom-5 left-6 text-white">
                     <p className="mb-1 flex items-center gap-1.5 text-xs text-white/85">
                       <MapPin size={14} />
-                      Saved {new Date(trip.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {trip.tripId ? `${trip.tripId} · ` : ''}Saved{' '}
+                      {trip.savedAt ? new Date(trip.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
                     </p>
                     <h3 className="text-3xl font-bold">{trip.destination}</h3>
                   </div>
@@ -259,25 +317,41 @@ export default function MyTrips() {
                     </div>
                   </div>
 
+                  {trip.note && <p className="mt-4 text-xs leading-5 text-amber-700">{trip.note}</p>}
+
                   <div className="mt-6 flex items-center gap-3 border-t border-[#edf2f3] pt-5">
                     <button
                       type="button"
-                      onClick={() => openTrip(trip.id)}
-                      className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#245c6a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#347989]"
+                      onClick={() => openTrip(trip)}
+                      disabled={busy === trip.id}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#245c6a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#347989] disabled:opacity-60"
                     >
-                      View itinerary
+                      {busy === trip.id ? 'Loading…' : 'View itinerary'}
                       <ArrowRight size={16} />
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => removeTrip(trip)}
-                      aria-label={`Delete ${trip.destination} trip`}
-                      title="Delete from this browser"
-                      className="rounded-xl bg-[#edf5f6] p-3 text-[#a35c5c] transition hover:bg-red-50"
+                      onClick={() => downloadPdf(trip)}
+                      disabled={busy === trip.id}
+                      aria-label={`Download ${trip.destination} itinerary as PDF`}
+                      title={trip.status === 'draft' ? 'Download a draft PDF (not verified)' : 'Download PDF'}
+                      className="rounded-xl bg-[#edf5f6] p-3 text-[#245c6a] transition hover:bg-[#dcecee] disabled:opacity-60"
                     >
-                      <Trash2 size={18} />
+                      <Download size={18} />
                     </button>
+
+                    {trip.localId && trip.source === 'local' && (
+                      <button
+                        type="button"
+                        onClick={() => removeTrip(trip)}
+                        aria-label={`Delete ${trip.destination} trip`}
+                        title="Delete from this browser"
+                        className="rounded-xl bg-[#edf5f6] p-3 text-[#a35c5c] transition hover:bg-red-50"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>
@@ -292,14 +366,15 @@ export default function MyTrips() {
             <p className="mt-2 text-sm text-[#8297a0]">
               {trips.length
                 ? 'Try another destination or filter.'
-                : 'Plan a trip, then press "Save trip to this browser" on the itinerary page.'}
+                : 'Approve a verified trip, or save a draft, from the itinerary page.'}
             </p>
           </div>
         )}
 
         <div className="mt-10 rounded-2xl border border-[#d7e8ea] bg-[#e6f2f3] p-5 text-sm leading-6 text-[#64848d]">
-          <strong>Stored locally:</strong> trips are kept in this browser&apos;s storage. Clearing site
-          data, or using another browser or device, will not show them. No account or cloud sync is involved.
+          <strong>Where trips are kept:</strong> approved trips are saved in the Rihla Trip Store through the
+          backend. Drafts (and a copy of each approved trip) are kept in this browser only: clearing site data, or
+          another browser or device, will not show them. No account sign-in is involved yet.
         </div>
 
         <footer className="pt-12 text-center text-sm text-[#8aa0aa]">

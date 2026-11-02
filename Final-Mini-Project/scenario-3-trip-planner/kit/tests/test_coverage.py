@@ -282,44 +282,19 @@ def test_orchestrator_uses_the_refreshed_duration_in_a_session():
 
 
 # ------------------------------------------------------------------ the revise_trip path
-def _revise(session: dict, revised: dict):
+def test_revision_without_a_kept_plan_fails_closed():
+    # Coverage of a revised plan is checked in app/revision.py (tests/test_trip_revision.py); a session with
+    # only a stored itinerary, no plan to revise, gets a question and no itinerary.
     from app.memory import sessions
 
-    sessions["revise-session"] = session
+    sessions["revise-session"] = {"itinerary": itinerary({0: ["citadel"]}).to_trip_store(),
+                                  "pending_action": None, "trip_details": {}}
     try:
-        with (
-            patch("app.orchestrator.understand_trip_request", return_value={"intent": "revise_trip"}),
-            patch("app.orchestrator.revise_itinerary", return_value=revised),
-        ):
-            return orchestrate_trip("Swap day two", session_id="revise-session")
+        with patch("app.orchestrator.understand_trip_request", return_value={"intent": "revise_trip"}):
+            result = orchestrate_trip("Swap day two", session_id="revise-session")
     finally:
         sessions.pop("revise-session", None)
-
-
-def _store(plan: dict[int, list[str]]) -> dict:
-    return itinerary(plan).to_trip_store()
-
-
-def test_revision_is_checked_against_the_stored_coverage_context():
-    from app.coverage import coverage_context
-
-    session = {"itinerary": _store({0: ["citadel"], 1: ["theatre"]}), "pending_action": None,
-               "trip_details": {}, "coverage_context": coverage_context(bundle(2))}
-
-    thin = _revise(session, _store({0: ["hashem"]}))
-    assert thin["status"] == "needs_revision"
-    assert "itinerary" not in thin
-
-    ok = _revise(session, _store({0: ["citadel"]}))
-    assert ok["status"] == "verification_required"  # still never approvable from here
-    assert ok["coverage"]["sufficient"] is True
-    assert "1 of 2 trip days have no sightseeing" in ok["message"]
-
-
-def test_revision_without_coverage_context_fails_closed():
-    session = {"itinerary": _store({0: ["citadel"]}), "pending_action": None, "trip_details": {}}
-    result = _revise(session, _store({0: ["citadel"]}))
-    assert result["status"] == "needs_revision"
+    assert result["status"] == "needs_clarification"
     assert "itinerary" not in result
 
 
