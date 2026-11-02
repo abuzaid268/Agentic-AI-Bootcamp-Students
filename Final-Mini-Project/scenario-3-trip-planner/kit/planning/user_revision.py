@@ -42,9 +42,12 @@ from .models import DayPlan, Itinerary
 from .research import ResearchBundle, ResearchedPlace
 from .revision import MAX_ALTERNATIVES, Alternative, DecisionPoint
 from .schedule import ScheduleRules, TravelLookup, TravelTimes, hours_on, schedule_day
+from .setting import setting
 
 OpKind = Literal["set_budget", "cheaper", "free_alternatives", "remove", "replace", "add", "move", "start_time",
-                 "lighten_day", "walk_limit", "use_rides", "prefer"]
+                 "lighten_day", "walk_limit", "use_rides", "prefer",
+                 # WHAT IF (app/whatif.py): hypothetical conditions, applied with the same edits as the ones above
+                 "closed", "rain_indoor"]
 
 # Words for interests in a request -> the research's interest tags (planning/research.py TripRequest.interests).
 INTEREST_WORDS = {
@@ -466,10 +469,11 @@ class _Edit:
         return kind == "exclude" and "at your request" in (why or "")
 
     def alternatives_pool(self, tag: str | None, *, cheaper_than: Decimal | None = None,
-                          free_only: bool = False) -> list[str]:
+                          free_only: bool = False, indoor_only: bool = False) -> list[str]:
         """Researched places not in the plan that a revision may add: never withheld, never closed on every trip
         date, never an event outside the trip; with `tag`, only places the research tags for that interest (a
-        restaurant only for food). An unknown price is never "cheaper": it may not be."""
+        restaurant only for food). An unknown price is never "cheaper": it may not be. `indoor_only`: only places
+        whose own listing shows they are indoors (planning/setting.py)."""
         out = []
         for c in self.cands.candidates:
             if c.place_id in self.planned() or c.closed_all_trip or c.not_during_trip or self.withdrawn(c.place_id):
@@ -479,6 +483,8 @@ class _Edit:
             if tag and tag not in c.tags:
                 continue
             if free_only and c.cost.status != "free":
+                continue
+            if indoor_only and (self.place(c.place_id) is None or setting(self.place(c.place_id)) != "indoor"):
                 continue
             cost = None if c.cost.status == "unknown" else c.cost.total_max
             if cheaper_than is not None and (cost is None or cost >= cheaper_than):
@@ -614,9 +620,9 @@ def _op_remove(e: _Edit, op: RevisionOp) -> None:
     e.decision[op.place_id] = ("exclude", "Removed at your request")
 
 
-def _op_replace(e: _Edit, op: RevisionOp, *, reason: str = "Replaced at your request") -> None:
-    what = f"{_label(op.tag)} " if op.tag else ""
-    pool = e.alternatives_pool(op.tag)
+def _op_replace(e: _Edit, op: RevisionOp, *, reason: str = "Replaced at your request", indoor_only: bool = False) -> None:
+    what = f"{_label(op.tag)} " if op.tag else "indoor " if indoor_only else ""
+    pool = e.alternatives_pool(op.tag, indoor_only=indoor_only)
     if not pool:
         raise RevisionInfeasible(f"The research has no other {what}place that could replace {e.name(op.place_id)}.")
     if not _swap(e, op.place_id, op.date, pool, reason, allow_remove=False):
@@ -872,6 +878,35 @@ def _run(st: PlanState, interpretation: Interpretation, travel_lookup: TravelLoo
                                 reason=f"Replaced: you prefer {_label(op.tag)} to {_label(op.from_tag)}")
                 except RevisionInfeasible as exc:
                     e.notes.append(str(exc))
+        elif op.kind == "closed":  # WHAT IF: this attraction is unavailable that day (hypothetical, said so)
+            try:
+                _op_replace(e, op, reason="Unavailable in this what-if (replaced at your request)")
+            except RevisionInfeasible as exc:
+                rest = [i for i in e.days.get(op.date, []) if i != op.place_id]
+                order = e.planner(e.ctx()).best_order(op.date, rest) if rest else []
+                e.set_day(op.date, order if order is not None else rest)
+                e.decision[op.place_id] = ("exclude", "Unavailable in this what-if (removed at your request)")
+                e.notes.append(f"{exc} It is removed from {_day_label(st, op.date)} instead.")
+        elif op.kind == "rain_indoor":  # WHAT IF: rain on op.date (None: every date); outdoor places go indoors
+            for day in [op.date] if op.date else _dates(st):
+                for pid in list(e.days.get(day, [])):
+                    place = e.place(pid)
+                    where = setting(place) if place else "unclear"
+                    if where == "indoor":
+                        continue
+                    if where == "unclear":
+                        e.notes.append(f"{e.name(pid)} ({_day_label(st, day)}): its listing does not say whether it "
+                                       "is indoors, so it is kept as planned.")
+                    elif e.required(pid):
+                        e.notes.append(f"{e.name(pid)} ({_day_label(st, day)}) is outdoors but you asked for it, so "
+                                       "it is kept: check the weather before you go.")
+                    else:
+                        try:
+                            _op_replace(e, RevisionOp(kind="replace", place_id=pid, date=day),
+                                        reason="Outdoors on a rainy day in this what-if (replaced at your request)",
+                                        indoor_only=True)
+                        except RevisionInfeasible as exc:
+                            e.notes.append(f"{exc} {e.name(pid)} is outdoors and stays in the plan.")
     return e, budget_note, walk_days
 
 

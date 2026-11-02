@@ -80,19 +80,12 @@ function UserMenu({ user, logout, loggingOut }) {
               {user.email && <p className="truncate text-xs text-white/60">{user.email}</p>}
             </div>
           </div>
-          <Link role="menuitem" to="/my-trips" onClick={() => setOpen(false)} className="mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/10">
+          <Link role="menuitem" to="/profile" onClick={() => setOpen(false)} className="mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/10">
+            <UserRound size={17} className="text-[#b7e6e4]" /> My Profile
+          </Link>
+          <Link role="menuitem" to="/my-trips" onClick={() => setOpen(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/10">
             <MapIcon size={17} className="text-[#b7e6e4]" /> My Trips
           </Link>
-          <button
-            role="menuitem"
-            type="button"
-            disabled
-            title="Your profile page arrives in the next phase."
-            className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-left text-white/45"
-          >
-            <UserRound size={17} /> My Profile
-            <span className="ml-auto rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold">SOON</span>
-          </button>
           <button
             role="menuitem"
             type="button"

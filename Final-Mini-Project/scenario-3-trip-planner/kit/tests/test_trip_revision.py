@@ -273,7 +273,8 @@ def test_a_revision_invalidates_the_old_approval_and_never_approves_an_unverifie
     assert body["itinerary"]["budget_total"] == 560.0 and body["plan_version"] == session["plan_state"].version
     with patch.dict("os.environ", {"TRAVEL_TRAVELLER_ID": "TRV-101"}), patch("app.main.save_trip_to_store") as save:
         old = client.post("/api/approve", json={"session_id": "rev", "action_id": "old-action", "approved": True})
-    assert old.status_code == 404 and not save.called  # the outdated action can no longer be used
+    # the outdated action can no longer be used (CONTRACT §3: a clear reply, nothing written)
+    assert old.json()["status"] == "no_pending_action" and old.json()["result"] is None and not save.called
 
 
 def test_a_question_keeps_the_pending_approval_of_the_plan_on_screen(session):

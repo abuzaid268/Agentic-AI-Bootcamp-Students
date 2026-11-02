@@ -1,6 +1,7 @@
 import { Navigate, Routes, Route } from 'react-router-dom'
 import App from './App.jsx'
 import MyTrips from './pages/MyTrips.jsx'
+import Profile from './pages/Profile.jsx'
 import TripDashboard from './pages/TripDashboard.jsx'
 import RequireAuth from './auth/RequireAuth.jsx'
 import { useAuth } from './auth/authContext.js'
@@ -16,6 +17,7 @@ export default function AppRoutes() {
       {/* Logging in is a modal over the home page now: old /login links open it there. */}
       <Route path="/login" element={<Navigate to="/" replace state={{ openLogin: true }} />} />
       <Route path="/my-trips" element={<RequireAuth resumeAfterLogin><MyTrips /></RequireAuth>} />
+      <Route path="/profile" element={<RequireAuth resumeAfterLogin><Profile /></RequireAuth>} />
     </Routes>
   )
 }

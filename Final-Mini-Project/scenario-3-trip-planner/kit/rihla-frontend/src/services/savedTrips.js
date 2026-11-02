@@ -1,8 +1,9 @@
 import { isValidTripResult } from './tripResult.js'
+import { SAMPLE_TRIP_ENTRIES } from '../data/sampleTrips.js'
 
-// Trips saved in THIS browser only (localStorage): no account, no cloud copy,
-// no sync between devices. The backend has no "list my trips" endpoint for the
-// frontend yet, so this is the honest local substitute.
+// Copies kept in THIS browser only (localStorage): drafts, labelled sample trips, and a copy of each trip the
+// backend approved. Approved trips themselves are the Rihla Trip Store's (GET /api/trips, per signed-in user); a
+// local entry is never shown as approved without the trip ID the backend returned.
 export const STORAGE_KEY = 'rihla.savedTrips.v1'
 export const MAX_SAVED_TRIPS = 30
 
@@ -71,9 +72,16 @@ export function summarizeSavedTrip(entry) {
     travellers: itinerary.travellers ?? null,
     budgetTotal: itinerary.budget_total ?? null,
     currency: itinerary.currency || 'USD',
-    verified: Boolean(entry.approval?.trip_id) || (entry.aiResult.status === 'pending_approval'
+    // Approved only with the trip ID the backend returned after saving it in the Trip Store; a trip the traveller
+    // accepted with its limitations (approval.mode) is saved, but never verified.
+    verified: (Boolean(entry.approval?.trip_id) && !entry.approval?.mode) || (entry.aiResult.status === 'pending_approval'
       && entry.aiResult.pending_action?.verification_status === 'verified'),
     approval: entry.approval || null,
+    sample: entry.sample === true,
+    sampleLabel: entry.sample === true ? entry.sampleLabel || 'Demo data' : null,
+    // Two different facts: the backend saved it after approval, or the traveller accepted an unverified draft here.
+    backendApproved: Boolean(entry.approval?.trip_id),
+    draftAccepted: Boolean(entry.draftAcceptedAt),
   }
 }
 
@@ -88,23 +96,31 @@ export function getSavedTrip(id, storage = defaultStorage()) {
 
 // The session id identifies one generated result, so saving it twice updates
 // the same entry instead of creating a duplicate.
-export function saveTrip(aiResult, request, storage = defaultStorage(), now = new Date()) {
+// `marks` records the traveller's decision: { draftAcceptedAt } or { backendApproval }.
+// Saving again keeps any decision recorded earlier for the same trip.
+export function saveTrip(aiResult, request, storage = defaultStorage(), now = new Date(), marks = {}) {
   if (!isValidTripResult(aiResult)) {
     throw new Error('Only a generated itinerary can be saved.')
   }
 
   const id = String(aiResult.session_id || request?.sessionId || `trip-${now.getTime()}`)
-  const previous = readAll(storage).find((t) => t.id === id)
+  if (id.startsWith(SAMPLE_PREFIX)) {
+    throw new Error('Sample trips are added with "Load Sample Trips", not saved as your own.')
+  }
+  const all = readAll(storage)
+  const previous = all.find((t) => t.id === id)
   const entry = {
     id,
     savedAt: now.toISOString(),
     request: requestFields(request),
     aiResult,
-    // an approval, once confirmed by the backend, is kept when the same trip is saved again
+    // a decision recorded earlier for the same trip is kept: the backend approval, or a local draft acceptance
     ...(previous?.approval ? { approval: previous.approval } : {}),
+    ...(previous?.draftAcceptedAt ? { draftAcceptedAt: previous.draftAcceptedAt } : {}),
+    ...pickMarks(marks),
   }
 
-  const others = readAll(storage).filter((t) => t.id !== id)
+  const others = all.filter((t) => t.id !== id)
   if (others.length >= MAX_SAVED_TRIPS) {
     throw new Error(`You can keep up to ${MAX_SAVED_TRIPS} trips in this browser. Delete one to save another.`)
   }
@@ -140,7 +156,62 @@ export function isTripSaved(id, storage = defaultStorage()) {
 export function markApproved(aiResult, request, savedTrip, storage = defaultStorage(), now = new Date()) {
   if (!savedTrip?.trip_id) throw new Error('The trip was not saved by the backend.')
   const entry = saveTrip(aiResult, request, storage, now)
-  const approved = { ...entry, approval: { trip_id: savedTrip.trip_id, approvedAt: now.toISOString() } }
+  const approved = { ...entry, approval: { trip_id: savedTrip.trip_id, approvedAt: now.toISOString(),
+    ...(savedTrip.basis ? { basis: savedTrip.basis } : {}),
+    // saved by the traveller's own acknowledged decision, not approved: accepted_with_limitations | unverified_draft
+    ...(savedTrip.mode ? { mode: savedTrip.mode } : {}) } }
   writeAll(storage, [approved, ...readAll(storage).filter((t) => t.id !== entry.id)])
   return approved
+}
+
+const SAMPLE_PREFIX = 'sample-'
+
+// `marks` from the dashboard: { draftAcceptedAt } (this browser only, never an approval) or { backendApproval }
+// (stored as `approval`, the one record of a backend approval, and only with the trip ID the backend returned).
+function pickMarks(marks) {
+  const out = {}
+  if (typeof marks.draftAcceptedAt === 'string') out.draftAcceptedAt = marks.draftAcceptedAt
+  if (marks.backendApproval?.status === 'approved' && marks.backendApproval.tripId) {
+    out.approval = { trip_id: String(marks.backendApproval.tripId),
+      approvedAt: String(marks.backendApproval.approvedAt || '') }
+  }
+  return out
+}
+
+export function getSavedTripMarks(id, storage = defaultStorage()) {
+  const entry = id ? getSavedTrip(id, storage) : null
+  return {
+    draftAcceptedAt: entry?.draftAcceptedAt || null,
+    backendApproval: entry?.approval?.trip_id
+      ? { status: 'approved', approvedAt: entry.approval.approvedAt, tripId: entry.approval.trip_id } : null,
+  }
+}
+
+export function hasSampleTrips(storage = defaultStorage()) {
+  return readAll(storage).some((t) => t.sample === true)
+}
+
+// Adds the demo entries that are not there yet; never touches the user's own trips.
+export function loadSampleTrips(storage = defaultStorage(), now = new Date()) {
+  const all = readAll(storage)
+  const present = new Set(all.map((t) => t.id))
+  const added = SAMPLE_TRIP_ENTRIES
+    .filter((sample) => !present.has(sample.id))
+    .map((sample, index) => ({
+      id: sample.id,
+      savedAt: new Date(now.getTime() - (index + 1) * 1000).toISOString(),
+      sample: true,
+      sampleLabel: sample.sampleLabel,
+      request: requestFields(sample.request),
+      aiResult: sample.aiResult,
+    }))
+  if (added.length) writeAll(storage, [...all, ...added])
+  return added.length
+}
+
+export function removeSampleTrips(storage = defaultStorage()) {
+  const all = readAll(storage)
+  const remaining = all.filter((t) => t.sample !== true)
+  if (remaining.length !== all.length) writeAll(storage, remaining)
+  return all.length - remaining.length
 }

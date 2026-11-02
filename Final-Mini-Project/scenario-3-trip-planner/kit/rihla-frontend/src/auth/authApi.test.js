@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-import { AuthRequiredError, endSession, fetchCurrentUser, openSession } from './authApi.js'
+import { AuthRequiredError, endSession, fetchCurrentUser, openSession, requireSession } from './authApi.js'
 import { signInErrorMessage } from './signInErrors.js'
 import { createTrip } from '../services/tripApi.js'
 
@@ -72,6 +72,23 @@ describe('a trip request without a valid session', () => {
     respondWith(401, { detail: 'Your session has expired. Please log in again.' })
     const trip = { destination: 'Amman', departureDate: '2026-11-02', returnDate: '2026-11-04', travellers: '1', budget: '900' }
     await assert.rejects(createTrip(trip, 's1'), (err) => err instanceof AuthRequiredError && /expired/.test(err.message))
+  })
+})
+
+describe('requireSession, for the trip, approval and revision clients', () => {
+  const answer = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body })
+
+  it('turns a 401 into AuthRequiredError with the backend message', async () => {
+    await assert.rejects(requireSession(answer(401, { detail: 'Your session has expired. Please log in again.' })),
+      (err) => err instanceof AuthRequiredError && err.status === 401 && /expired/.test(err.message))
+    await assert.rejects(requireSession(answer(401, null)), /session ended/)  // no readable detail: the fallback
+  })
+
+  it('hands every other answer back unchanged, errors included', async () => {
+    for (const status of [200, 403, 404, 503]) {
+      const response = answer(status, {})
+      assert.equal(await requireSession(response), response)
+    }
   })
 })
 

@@ -43,7 +43,7 @@ from .budget import (ActivityCost, BudgetError, BudgetStatus, BudgetVerdict, Exc
                      RateTable, _fmt, apply_to_activity, budget_verdict, money, price_activity,
                      quote_from_tool_price)
 from .models import Activity
-from .plan_quality import target_range
+from .plan_quality import full_day_words, target_range
 from .schedule import hours_on, trip_dates
 from .research import SCHEMA_VERSION, ResearchBundle, ResearchedPlace, ToolFailure, TripRequest
 
@@ -506,7 +506,7 @@ def selection_shortfall(cands: CandidateSet, decision: BudgetDecision) -> tuple[
     0 when the plan reaches target_range()'s minimum, when no relevant place is left to add, or when the plan
     is already over budget (then fewer places is the honest answer). Unknown costs never count against a place.
     """
-    low, _ = target_range(cands.trip.days)
+    low, _ = target_range(cands.trip.days, cands.trip.activity_pace)
     by_id = {d.place_id: d for d in decision.decisions}
     chosen = {d.place_id: d.decision for d in decision.decisions}
     non_meal = [c for c in cands.candidates if c.category == "attraction"]
@@ -527,11 +527,12 @@ def selection_shortfall(cands: CandidateSet, decision: BudgetDecision) -> tuple[
 
 
 def shortfall_feedback(cands: CandidateSet, need: int, pool: list[Candidate]) -> str:
-    low, high = target_range(cands.trip.days)
+    low, high = target_range(cands.trip.days, cands.trip.activity_pace)
     listed = [f"{c.place_id}{' (cost unknown)' if c.cost.status == 'unknown' else ''}" for c in pool[:12]]
     return "\n".join([
         f"Your plan is valid but too thin: a {cands.trip.days}-day trip needs at least {low} non-meal places "
-        f"(about two on full days, one on arrival and departure days; at most {high}), and it is {need} short.",
+        f"(about {full_day_words(cands.trip.activity_pace)} on full days, one on arrival and departure days; at "
+        f"most {high}), and it is {need} short.",
         "These places match the traveller's interests and are not in the plan: " + ", ".join(listed) + ".",
         "An unknown cost alone is not a reason to exclude a place: it stays unknown, never free. Include the most "
         "relevant ones (say in the reason when the cost is unknown), check_selection the plan, and return the "
@@ -638,7 +639,7 @@ def prompt_inputs(cands: CandidateSet) -> dict[str, str]:
                "budget_style": _data_text(trip.budget_style, 20),
                "required_places_known_total": _amount(req.known_total),
                "required_places_with_unknown_cost": len(req.unknown_cost_ids),
-               "target_non_meal_places": dict(zip(("min", "max"), target_range(trip.days))),
+               "target_non_meal_places": dict(zip(("min", "max"), target_range(trip.days, trip.activity_pace))),
                "costs_cover": "entry fees and listed meals only"}
     rows = []
     for c in cands.candidates:
@@ -990,7 +991,7 @@ def top_up(cands: CandidateSet, selected: list[PlannedItem],
     Never an excluded place, never past the trip's maximum of non-meal places, and never a place that would put
     the plan over budget (an unknown cost is "undetermined", not over: it stays unknown, never free). Returns
     (selected, the remaining alternatives, one line per addition)."""
-    interests, (low, high) = cands.trip.interests, target_range(cands.trip.days)
+    interests, (low, high) = cands.trip.interests, target_range(cands.trip.days, cands.trip.activity_pace)
     selected, pool, notes = list(selected), list(alternatives), []
 
     def sights() -> list[PlannedItem]:  # the ones that can be visited: a place closed all trip does not count

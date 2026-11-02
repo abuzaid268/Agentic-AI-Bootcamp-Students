@@ -36,7 +36,8 @@ FAULT_TARGETS = ["geocode", "attractions", "restaurants", "hours", "weather", "f
                  "get_trip", "list_trips", "get_preferences", "save_preferences"]
 FAULT_MODES = ["error_500", "error_503", "timeout", "slow"]
 PREF_FIELDS = {"budget_style": str, "interests": list, "dietary": list, "walking_tolerance": str,
-               "max_walk_minutes": int, "home_currency": str, "travel_party": str, "notes": str}
+               "max_walk_minutes": int, "home_currency": str, "travel_party": str, "notes": str,
+               "activity_pace": str}  # relaxed | balanced | packed: how full the traveller likes their days
 NOT_BOOKED = "Saved in the simulated Rihla Trip Store. Nothing was booked, reserved or paid."
 
 class UTF8JSONResponse(JSONResponse):
@@ -185,7 +186,8 @@ def index():
 def health():
     return {"status": "ok", "service": SERVICE, "mode": td.data_mode(), "travel_mode_setting": td.mode(),
             "today": td.travel_today().isoformat(), "overlays": overlays()["names"],
-            "cached_cities": [c["name"] for c in td.manifest().get("cities", [])], "places": gp.status()}
+            "cached_cities": [c["name"] for c in td.manifest().get("cities", [])], "places": gp.status(),
+            "preference_fields": sorted(PREF_FIELDS)}  # what PUT /api/travellers/{id}/preferences accepts
 
 
 # ------------------------------------------------------------------ read side (real data)
@@ -518,6 +520,8 @@ def save_preferences(traveller_id: str, body: dict = Body(..., examples=[{"dieta
         raise ApiError(422, "bad_value", "budget_style must be budget, mid-range or splurge.")
     if "walking_tolerance" in prefs and prefs["walking_tolerance"] not in ("low", "medium", "high"):
         raise ApiError(422, "bad_value", "walking_tolerance must be low, medium or high.")
+    if "activity_pace" in prefs and prefs["activity_pace"] not in ("relaxed", "balanced", "packed"):
+        raise ApiError(422, "bad_value", "activity_pace must be relaxed, balanced or packed.")
     with LOCK:
         t = traveller(traveller_id)
         if not t:

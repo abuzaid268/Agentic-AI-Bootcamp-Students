@@ -159,5 +159,5 @@ def test_amman_frontend_labels_reach_the_real_attractions(travel_api_caller):
     # a walking area with cafes. The recorded Amman page has no shopping listing, so shopping is not served.
     assert "Rainbow Street" not in attractions
     assert len(attractions) == 13  # was 1 (Rainbow Street) with the raw labels
-    assert len(restaurants) == 10
+    assert len(restaurants) == 16  # every restaurant on the recorded Amman page (researcher.RESTAURANT_LIMIT is 20)
     assert bundle.failures == []

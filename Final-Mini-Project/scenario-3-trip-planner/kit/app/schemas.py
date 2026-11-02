@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -37,13 +37,22 @@ class ChatRequest(BaseModel):
     # request on an older version than the session's is refused rather than applied to the wrong plan.
     base_version: str | None = Field(default=None, max_length=40)
     revision: bool = False  # sent by the dashboard's "Ask for a change" box
+    user: dict[str, Any] | None = None  # CONTRACT §1/§5: {"traveller_id": "TRV-101", "name": "..."}, optional
 
 
 class ChatResponse(BaseModel):
+    # The API contract (common/CONTRACT.md §2)
     session_id: str
+    reply: str = ""  # always present: plain text the traveller reads
+    state: str | None = None  # where the workflow is now (the same value as status)
+    pending_action: dict[str, Any] | None = None  # {action_id, type, summary, payload} only when approvable
+    result: dict[str, Any] | None = None  # {"trip_id": "TRIP-…"} only after the Trip Store confirmed a save
+    citations: list[dict[str, Any]] = Field(default_factory=list)  # [{id, title, url}]
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)  # [{tool, ok, ms, agent, via}]
+    usage: dict[str, Any] | None = None  # {prompt_tokens, completion_tokens, cost_usd, ...}
+    # Rihla's own fields (the React dashboard reads them)
     status: str
     itinerary: dict[str, Any] | None = None
-    pending_action: dict[str, Any] | None = None
     message: str | None = None
     coverage: dict[str, Any] | None = None  # app/coverage.py CoverageReport.as_dict()
     plan_quality: dict[str, Any] | None = None  # app/coverage.py DensityReport.as_dict(): advice, never a gate
@@ -51,8 +60,14 @@ class ChatResponse(BaseModel):
     summary: dict[str, Any] | None = None  # orchestrator.traveller_summary(): interest coverage and limitations
     verification: dict[str, Any] | None = None  # orchestrator.verification_summary(): Python's verdict and findings
     budget: dict[str, Any] | None = None  # orchestrator.budget_summary(): known, unknown and not-included costs
+    approval_eligibility: dict[str, Any] | None = None  # app/approval_policy.py: eligible, verification_status, evidence basis, why
     plan_version: str | None = None  # the session's plan this response shows: send it back as base_version
     revision: dict[str, Any] | None = None  # app/revision.py: outcome, changes, unchanged dates, who chose
+    memory_notes: list[str] = Field(default_factory=list)  # app/traveller_memory.py: saved preferences used, or why not
+    whatif: dict[str, Any] | None = None  # app/whatif.py: the hypothetical scenario, its proposal and outcome
+    # app/approval_policy.acceptance: a plan that is not eligible for approval, which the traveller may still save as
+    # their own acknowledged decision (POST /api/accept): its mode, status label, limitations and known costs
+    pending_acceptance: dict[str, Any] | None = None
 
 
 class ErrorBody(BaseModel):
@@ -63,7 +78,41 @@ class ErrorBody(BaseModel):
     retryable: bool
 
 
+class WhatIfScenario(BaseModel):
+    """One WHAT IF scenario (app/whatif.py). Only the fields its type uses are read."""
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["budget_cut", "rain", "closure", "delay"]
+    percent: float | None = Field(default=None, ge=1, le=90)  # budget_cut (default 30)
+    date: dt.date | None = None  # rain (None: every day)
+    place_id: str | None = Field(default=None, max_length=120)  # closure
+    hours: int | None = Field(default=None, ge=1, le=12)  # delay (default 3)
+
+
+class WhatIfRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    base_version: str | None = Field(default=None, max_length=40)  # the plan_version on screen
+    scenario: WhatIfScenario
+
+
+class WhatIfApplyRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    proposal_id: str = Field(min_length=1, max_length=40)
+
+
+class SessionRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+
+
 class ApproveRequest(BaseModel):
     session_id: str
     action_id: str
     approved: bool
+
+
+class AcceptRequest(BaseModel):
+    """POST /api/accept: the traveller keeps a plan that is not eligible for approval, having read its limitations."""
+    session_id: str = Field(min_length=1)
+    acceptance_id: str = Field(min_length=1, max_length=64)
+    acknowledged: bool  # True only from the confirmation's explicit acknowledgment; False cancels (nothing saved)
+    mode: str = Field(max_length=40)  # the mode the traveller confirmed: it must be the plan's own

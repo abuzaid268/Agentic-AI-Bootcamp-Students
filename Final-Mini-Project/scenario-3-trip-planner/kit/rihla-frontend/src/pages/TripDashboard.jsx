@@ -3,15 +3,19 @@ import {
   approvalBlockedReason, getVerificationState, isValidTripResult, summarizeBudget, summarizeDensity,
 } from '../services/tripResult'
 import { getSavedTrip, isTripSaved, markApproved, saveTrip } from '../services/savedTrips'
-import { approveTrip, reviseTrip } from '../services/tripApi'
+import { approveTrip, rejectTrip, reviseTrip } from '../services/tripApi'
+import { approvalOptions } from '../services/approval'
+import { AuthRequiredError } from '../auth/authApi'
+import { useAuth } from '../auth/authContext'
 import { applyRevision, revisionBlockedReason } from '../services/tripRevision'
+import WhatIfPanel from './WhatIfPanel'
 import { SAMPLE_HERO_IMAGE, SAMPLE_TRIP } from '../data/sampleTrip'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3, ExternalLink, FlaskConical,
   Loader2, MapPin, Send, ShieldAlert, ShieldCheck, Sparkles, TriangleAlert, Wallet,
-  Users, Plane, ChevronRight, Download, Bookmark, BookmarkCheck, Footprints, Map as MapIcon,
+  Users, Plane, ChevronRight, Download, Bookmark, BookmarkCheck, Footprints, Map as MapIcon, XCircle,
 } from 'lucide-react'
 
 const SCOPE_NOTE =
@@ -19,6 +23,7 @@ const SCOPE_NOTE =
 
 const BADGE_STYLES = {
   verified: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  recorded: 'border-sky-200 bg-sky-50 text-sky-800',
   unverified: 'border-amber-200 bg-amber-50 text-amber-700',
   sample: 'border-slate-300 bg-slate-100 text-slate-700',
 }
@@ -88,9 +93,12 @@ function NoTrip() {
 export default function TripDashboard() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { sessionExpired } = useAuth()
   const trip = location.state || {}
   const aiResult = trip.aiResult
   const isSample = trip.sample === true && !aiResult
+  // A labelled sample opened from My Trips ("Load Sample Trips"): a real result shape, but demo data.
+  const sampleEntry = trip.sampleTrip === true
   const isReal = isValidTripResult(aiResult)
 
   const view = isReal ? buildTripView(aiResult.itinerary) : SAMPLE_TRIP
@@ -130,16 +138,38 @@ export default function TripDashboard() {
     }
   }
 
-  // Approval: only for a verified itinerary with the backend's save_trip action. The trip counts as approved
-  // only after the backend confirmed it saved the trip in the Rihla Trip Store.
+  // Approval: only for the backend's save_trip action of a plan its approval policy made eligible (verified on
+  // live evidence, or every check passed on recorded data, said so). The trip counts as approved only after the
+  // backend confirmed it saved the trip in the Rihla Trip Store.
   const [approval, setApproval] = useState(
     () => aiResult?.approval || (isReal ? getSavedTrip(tripId)?.approval : null) || null,
   )
   const [approving, setApproving] = useState(false)
+  const [rejected, setRejected] = useState(false)
   const [approveError, setApproveError] = useState('')
   const [approveNote, setApproveNote] = useState('')
-  const actionId = aiResult?.pending_action?.type === 'save_trip' ? aiResult.pending_action.action_id : null
-  const canApprove = isReal && verification.level === 'verified' && Boolean(actionId) && !approval
+  const options = isReal && !sampleEntry ? approvalOptions(aiResult) : { canApprove: false, basis: null, disclosure: null }
+  const actionId = options.canApprove ? aiResult.pending_action.action_id : null
+  const canApprove = options.canApprove && !approval && !rejected
+
+  const handleReject = async () => {
+    if (!canApprove || approving) return
+    setApproving(true)
+    setApproveError('')
+    try {
+      const { message: reply } = await rejectTrip(tripId, actionId)
+      setRejected(true)
+      setApproveNote(reply || 'You rejected this plan. Nothing was saved.')
+    } catch (err) {
+      if (err instanceof AuthRequiredError) {
+        sessionExpired(() => handleReject())
+        return
+      }
+      setApproveError(err instanceof Error ? err.message : 'The rejection could not be sent. Nothing was saved.')
+    } finally {
+      setApproving(false)
+    }
+  }
 
   const handleApprove = async () => {
     if (!canApprove || approving) return // one approval at a time
@@ -147,9 +177,10 @@ export default function TripDashboard() {
     setApproveError('')
     try {
       const { trip: savedTrip, alreadyApproved } = await approveTrip(tripId, actionId)
-      const local = { trip_id: savedTrip.trip_id, approvedAt: new Date().toISOString() }
+      // basis: what the approval relied on (live | recorded), kept for the PDF and the dashboard
+      const local = { trip_id: savedTrip.trip_id, approvedAt: new Date().toISOString(), basis: options.basis }
       try {
-        markApproved(aiResult, trip, savedTrip)
+        markApproved(aiResult, trip, { ...savedTrip, basis: options.basis })
         setSaved(true)
       } catch {
         // the backend saved it; only the local copy failed (storage blocked): My Trips still lists it
@@ -159,6 +190,10 @@ export default function TripDashboard() {
         ? `This trip was already approved and saved. Trip ID: ${savedTrip.trip_id}.`
         : `Approved and saved to My Trips. Trip ID: ${savedTrip.trip_id}.`)
     } catch (err) {
+      if (err instanceof AuthRequiredError) { // the session ended: log in again, then approve once more
+        sessionExpired(() => handleApprove())
+        return
+      }
       setApproveError(err instanceof Error ? err.message : 'The trip could not be approved.')
     } finally {
       setApproving(false)
@@ -178,7 +213,7 @@ export default function TripDashboard() {
   }
   // Change requests: sent to the backend, which revises the plan it keeps for this session and verifies it
   // again. Only a revised itinerary replaces the one on screen; anything else leaves it as it is.
-  const revisionBlocked = revisionBlockedReason(aiResult, { sample: isSample, approved: Boolean(approval) })
+  const revisionBlocked = revisionBlockedReason(aiResult, { sample: isSample || sampleEntry, approved: Boolean(approval) })
   const [message, setMessage] = useState('')
   const [revising, setRevising] = useState(false)
   const [messages, setMessages] = useState(() => [
@@ -210,33 +245,55 @@ export default function TripDashboard() {
     }
 
     setMessages((previous) => [...previous, { role: 'user', text }])
+    await runRevision(text)
+  }
+
+  // The revised itinerary replaces the old one everywhere on the page (and survives a refresh). Its approval is the
+  // backend's new one, or none: the previous version's approval no longer applies.
+  const showRevised = (result) => {
+    const request = { ...trip, aiResult: result, budget: result.itinerary.budget_total ?? trip.budget }
+    navigate('/trip', { replace: true, state: request })
+    setApproval(null)
+    setRejected(false)
+    setApproveNote('')
+    setApproveError('')
+    setPdfError('')
+    setActiveDay((current) => Math.min(current, result.itinerary.days.length - 1))
+    if (saved) {
+      try {
+        saveTrip(result, request) // the draft in this browser is the latest version too
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : 'The saved draft could not be updated.')
+      }
+    }
+  }
+
+  // An applied WHAT IF (WhatIfPanel): the traveller reviewed the proposal and chose it.
+  const onWhatIfApplied = (response, info) => {
+    const next = applyRevision(aiResult, response)
+    if (!next.result) return
+    showRevised(next.result)
+    setMessages((previous) => [...previous, {
+      role: 'assistant', text: `Applied the WHAT IF: ${info?.title || 'a hypothetical change'} ${next.reply}`,
+      changes: next.changes, moreChanges: next.moreChanges, outcome: 'revised',
+    }])
+  }
+
+  const runRevision = async (text) => {
     setRevising(true)
     try {
       const response = await reviseTrip(tripId, text, aiResult.plan_version)
       const next = applyRevision(aiResult, response)
-      if (next.result) {
-        // The revised itinerary replaces the old one everywhere on the page (and survives a refresh). Its
-        // approval is the backend's new one, or none: the previous version's approval no longer applies.
-        const request = { ...trip, aiResult: next.result, budget: next.result.itinerary.budget_total ?? trip.budget }
-        navigate('/trip', { replace: true, state: request })
-        setApproval(null)
-        setApproveNote('')
-        setApproveError('')
-        setPdfError('')
-        setActiveDay((current) => Math.min(current, next.result.itinerary.days.length - 1))
-        if (saved) {
-          try {
-            saveTrip(next.result, request) // the draft in this browser is the latest version too
-          } catch (err) {
-            setSaveError(err instanceof Error ? err.message : 'The saved draft could not be updated.')
-          }
-        }
-      }
+      if (next.result) showRevised(next.result)
       setMessages((previous) => [...previous, {
         role: 'assistant', text: next.reply, changes: next.changes, moreChanges: next.moreChanges,
         outcome: next.outcome,
       }])
     } catch (err) {
+      if (err instanceof AuthRequiredError) { // the session ended: log in again, then send the same change once
+        sessionExpired(() => runRevision(text))
+        return
+      }
       setMessages((previous) => [...previous, {
         role: 'assistant', error: true,
         text: err instanceof Error ? err.message : 'The change failed. Your itinerary was not changed.',
@@ -256,6 +313,12 @@ export default function TripDashboard() {
         <div className="border-b border-slate-300 bg-slate-800 px-6 py-3 text-center text-sm font-semibold text-white">
           <FlaskConical size={16} className="mr-2 inline" />
           SAMPLE TRIP: demo data only. Not AI-generated and not based on your request.
+        </div>
+      )}
+      {sampleEntry && (
+        <div className="border-b border-violet-300 bg-violet-800 px-6 py-3 text-center text-sm font-semibold text-white">
+          <FlaskConical size={16} className="mr-2 inline" />
+          SAMPLE TRIP: {trip.sampleLabel || 'demo data'}. It cannot be approved or changed.
         </div>
       )}
 
@@ -744,19 +807,36 @@ export default function TripDashboard() {
               )}
             </section>
 
+            {isReal && !isSample && (
+              <WhatIfPanel key={aiResult.plan_version || 'no-plan'} aiResult={aiResult} sessionId={tripId}
+                blockedReason={revisionBlocked}
+                onApplied={onWhatIfApplied} />
+            )}
+
             <section className="rounded-[28px] border border-[#e0ebed] bg-white p-6 shadow-sm">
               <h2 className="mb-2 text-lg font-bold">Ready for your adventure?</h2>
               <p className="mb-5 text-sm leading-6 text-[#8297a0]">
                 {approval
                   ? 'You approved this itinerary and it is saved in your trips.'
-                  : verification.level === 'verified'
-                    ? (actionId
-                      ? 'This itinerary passed verification. Approve it to save it to My Trips. Rihla never books or pays for anything.'
-                      : 'This itinerary passed verification, but there is no approval waiting for it. Plan the trip again to approve it.')
-                    : verification.level === 'sample'
-                      ? 'The sample trip cannot be approved.'
-                      : approvalBlockedReason(aiResult)}
+                  : rejected
+                    ? 'You rejected this itinerary. Nothing was saved. Ask for a change, or plan another trip.'
+                    : sampleEntry || verification.level === 'sample'
+                      ? 'A sample trip cannot be approved.'
+                      : options.canApprove && options.basis === 'live'
+                        ? 'This itinerary passed verification on live data. Approve it to save it to My Trips. Rihla never books or pays for anything.'
+                        : options.canApprove
+                          ? 'Every check passed, on recorded data. Approve it to save it to My Trips, or reject it. Rihla never books or pays for anything.'
+                          : verification.level === 'verified'
+                            ? 'This itinerary passed verification, but there is no approval waiting for it. Plan the trip again to approve it.'
+                            : approvalBlockedReason(aiResult)}
               </p>
+              {canApprove && options.basis === 'recorded' && (
+                <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-900">
+                  <strong>Recorded data, not live confirmation.</strong>{' '}
+                  {options.disclosure || 'Opening hours, prices and travel times were not confirmed today.'} Check
+                  them before you go.
+                </p>
+              )}
               <button
                 type="button"
                 onClick={handleApprove}
@@ -771,10 +851,22 @@ export default function TripDashboard() {
                 }`}
               >
                 <CheckCircle2 size={18} />
-                {approval ? 'Approved' : approving ? 'Approving…' : 'Approve itinerary'}
+                {approval ? 'Approved' : approving ? 'Sending…' : 'Approve itinerary'}
               </button>
+              {canApprove && (
+                <button
+                  type="button"
+                  onClick={handleReject}
+                  disabled={approving}
+                  aria-label="Reject itinerary"
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-[#e3cfcf] px-5 py-3 text-sm font-semibold text-[#a35c5c] transition hover:bg-red-50 disabled:opacity-60"
+                >
+                  <XCircle size={17} /> Reject
+                </button>
+              )}
               {approveNote && (
-                <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-center text-sm font-semibold text-emerald-700">
+                <p role="status" className={`mt-3 rounded-xl p-3 text-center text-sm font-semibold ${
+                  rejected ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-700'}`}>
                   {approveNote}
                 </p>
               )}
@@ -786,7 +878,7 @@ export default function TripDashboard() {
                   {approveError}
                 </p>
               )}
-              {!canApprove && !approval && !approveError && (
+              {!canApprove && !approval && !rejected && !approveError && (
                 <p className="mt-3 text-center text-xs text-[#91a3ab]">Approval unavailable</p>
               )}
             </section>

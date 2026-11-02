@@ -17,7 +17,7 @@ import datetime as dt
 import math
 from dataclasses import dataclass, field
 
-from planning.plan_quality import daily_targets, target_range
+from planning.plan_quality import daily_targets, full_day_words, target_range
 
 MIN_COVERED_SHARE = 0.5
 MEAL_KINDS = {"eat", "drink"}
@@ -237,6 +237,7 @@ class DensityReport:
     excluded_matching: int  # matching attractions the Budget Analyst excluded
     dropped_for_budget: int
     unscheduled: int  # selected places the Planner or the scheduler could not place
+    pace: str | None = None  # the traveller's activity pace the targets were set for
 
     @property
     def total_non_meal(self) -> int:
@@ -244,11 +245,11 @@ class DensityReport:
 
     @property
     def target_min(self) -> int:
-        return target_range(len(self.dates))[0]
+        return target_range(len(self.dates), self.pace)[0]
 
     @property
     def target_max(self) -> int:
-        return target_range(len(self.dates))[1]
+        return target_range(len(self.dates), self.pace)[1]
 
     @property
     def light_dates(self) -> list[dt.date]:
@@ -277,7 +278,7 @@ class DensityReport:
         dates = ", ".join(d.isoformat() for d in self.light_dates)
         return (
             f"Light itinerary: {self.total_non_meal} sightseeing activities over {len(self.dates)} days; a full plan "
-            f"has about {self.target_min} to {self.target_max} (two or three on full days, one on arrival and "
+            f"has about {self.target_min} to {self.target_max} ({full_day_words(self.pace)} on full days, one on arrival and "
             f"departure days). Lighter days: {dates}. Why: {self.reason()}."
         )
 
@@ -320,7 +321,7 @@ def assess_density(itinerary, bundle, budget_report, planner_report=None) -> Den
     attractions = [p for p in bundle.places if p.category == "attraction"]
     return DensityReport(
         dates=dates,
-        targets=daily_targets(len(dates)),
+        targets=daily_targets(len(dates), bundle.trip.activity_pace),
         non_meal_per_day=non_meal,
         meals=meals,
         matching_attractions=sum(_matches(p.tags, interests) for p in attractions),
@@ -329,6 +330,7 @@ def assess_density(itinerary, bundle, budget_report, planner_report=None) -> Den
                               for i in budget_report.excluded),
         dropped_for_budget=len(budget_report.dropped_for_budget),
         unscheduled=len(planner_report.unscheduled) if planner_report is not None else 0,
+        pace=bundle.trip.activity_pace,
     )
 
 

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createTrip } from './services/tripApi'
 import { validateTripResult } from './services/tripResult'
 import { validateTripForm } from './services/tripForm'
@@ -38,6 +38,8 @@ export default function App() {
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Set synchronously: a second submit before React re-renders (double Enter, double click) sees it at once.
+  const requestInFlight = useRef(false)
 
   // A real clock while the backend works (it reports no stages yet): never an invented progress bar.
   useEffect(() => {
@@ -59,6 +61,8 @@ export default function App() {
 
   // `owner` is the signed-in user the trip is generated for: the dashboard shows it to that account only.
   const generateTrip = async (trip, owner) => {
+    if (requestInFlight.current) return // one request at a time, even before the next render
+    requestInFlight.current = true
     setElapsed(0)
     setIsLoading(true)
 
@@ -82,13 +86,14 @@ export default function App() {
       }
       setError(err instanceof Error ? err.message : 'Unable to plan your trip.')
     } finally {
+      requestInFlight.current = false
       setIsLoading(false)
     }
   }
 
   const handleSubmit = (event) => {
     event.preventDefault()
-    if (isLoading) return // one request at a time
+    if (isLoading || requestInFlight.current) return // one request at a time
     setError('')
 
     const trip = {
@@ -174,6 +179,7 @@ export default function App() {
               </div>
             )}
             <a href="#planner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2 hover:bg-white/10">AI Trip Planner</a>
+            {user && <a href="/profile" className="rounded-xl px-3 py-2 hover:bg-white/10">My Profile</a>}
             <a href="/my-trips" className="rounded-xl px-3 py-2 hover:bg-white/10">My Trips</a>
             {user ? (
               <button

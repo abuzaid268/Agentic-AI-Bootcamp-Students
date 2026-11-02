@@ -1,0 +1,286 @@
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/app/coverage.py b/Final-Mini-Project/scenario-3-trip-planner/kit/app/coverage.py
+index 6c2af45..ea63009 100644
+--- a/Final-Mini-Project/scenario-3-trip-planner/kit/app/coverage.py
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/app/coverage.py
+@@ -17,7 +17,7 @@ import datetime as dt
+ import math
+ from dataclasses import dataclass, field
+ 
+-from planning.plan_quality import daily_targets, target_range
++from planning.plan_quality import daily_targets, full_day_words, target_range
+ 
+ MIN_COVERED_SHARE = 0.5
+ MEAL_KINDS = {"eat", "drink"}
+@@ -237,6 +237,7 @@ class DensityReport:
+     excluded_matching: int  # matching attractions the Budget Analyst excluded
+     dropped_for_budget: int
+     unscheduled: int  # selected places the Planner or the scheduler could not place
++    pace: str | None = None  # the traveller's activity pace the targets were set for
+ 
+     @property
+     def total_non_meal(self) -> int:
+@@ -244,11 +245,11 @@ class DensityReport:
+ 
+     @property
+     def target_min(self) -> int:
+-        return target_range(len(self.dates))[0]
++        return target_range(len(self.dates), self.pace)[0]
+ 
+     @property
+     def target_max(self) -> int:
+-        return target_range(len(self.dates))[1]
++        return target_range(len(self.dates), self.pace)[1]
+ 
+     @property
+     def light_dates(self) -> list[dt.date]:
+@@ -277,7 +278,7 @@ class DensityReport:
+         dates = ", ".join(d.isoformat() for d in self.light_dates)
+         return (
+             f"Light itinerary: {self.total_non_meal} sightseeing activities over {len(self.dates)} days; a full plan "
+-            f"has about {self.target_min} to {self.target_max} (two or three on full days, one on arrival and "
++            f"has about {self.target_min} to {self.target_max} ({full_day_words(self.pace)} on full days, one on arrival and "
+             f"departure days). Lighter days: {dates}. Why: {self.reason()}."
+         )
+ 
+@@ -320,7 +321,7 @@ def assess_density(itinerary, bundle, budget_report, planner_report=None) -> Den
+     attractions = [p for p in bundle.places if p.category == "attraction"]
+     return DensityReport(
+         dates=dates,
+-        targets=daily_targets(len(dates)),
++        targets=daily_targets(len(dates), bundle.trip.activity_pace),
+         non_meal_per_day=non_meal,
+         meals=meals,
+         matching_attractions=sum(_matches(p.tags, interests) for p in attractions),
+@@ -329,6 +330,7 @@ def assess_density(itinerary, bundle, budget_report, planner_report=None) -> Den
+                               for i in budget_report.excluded),
+         dropped_for_budget=len(budget_report.dropped_for_budget),
+         unscheduled=len(planner_report.unscheduled) if planner_report is not None else 0,
++        pace=bundle.trip.activity_pace,
+     )
+ 
+ 
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/app/research_adapter.py b/Final-Mini-Project/scenario-3-trip-planner/kit/app/research_adapter.py
+index 77a7426..e5f86f7 100644
+--- a/Final-Mini-Project/scenario-3-trip-planner/kit/app/research_adapter.py
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/app/research_adapter.py
+@@ -150,6 +150,7 @@ def build_research_request(trip_info: dict[str, Any]) -> TripRequest:
+ 
+     for optional_field in (
+         "budget_style",
++        "activity_pace",
+         "max_walk_minutes",
+         "day_start",
+         "day_end",
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/budget_analyst.py b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/budget_analyst.py
+index 25c247e..a4645e0 100644
+--- a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/budget_analyst.py
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/budget_analyst.py
+@@ -43,7 +43,7 @@ from .budget import (ActivityCost, BudgetError, BudgetStatus, BudgetVerdict, Exc
+                      RateTable, _fmt, apply_to_activity, budget_verdict, money, price_activity,
+                      quote_from_tool_price)
+ from .models import Activity
+-from .plan_quality import target_range
++from .plan_quality import full_day_words, target_range
+ from .schedule import hours_on, trip_dates
+ from .research import SCHEMA_VERSION, ResearchBundle, ResearchedPlace, ToolFailure, TripRequest
+ 
+@@ -506,7 +506,7 @@ def selection_shortfall(cands: CandidateSet, decision: BudgetDecision) -> tuple[
+     0 when the plan reaches target_range()'s minimum, when no relevant place is left to add, or when the plan
+     is already over budget (then fewer places is the honest answer). Unknown costs never count against a place.
+     """
+-    low, _ = target_range(cands.trip.days)
++    low, _ = target_range(cands.trip.days, cands.trip.activity_pace)
+     by_id = {d.place_id: d for d in decision.decisions}
+     chosen = {d.place_id: d.decision for d in decision.decisions}
+     non_meal = [c for c in cands.candidates if c.category == "attraction"]
+@@ -527,11 +527,12 @@ def selection_shortfall(cands: CandidateSet, decision: BudgetDecision) -> tuple[
+ 
+ 
+ def shortfall_feedback(cands: CandidateSet, need: int, pool: list[Candidate]) -> str:
+-    low, high = target_range(cands.trip.days)
++    low, high = target_range(cands.trip.days, cands.trip.activity_pace)
+     listed = [f"{c.place_id}{' (cost unknown)' if c.cost.status == 'unknown' else ''}" for c in pool[:12]]
+     return "\n".join([
+         f"Your plan is valid but too thin: a {cands.trip.days}-day trip needs at least {low} non-meal places "
+-        f"(about two on full days, one on arrival and departure days; at most {high}), and it is {need} short.",
++        f"(about {full_day_words(cands.trip.activity_pace)} on full days, one on arrival and departure days; at "
++        f"most {high}), and it is {need} short.",
+         "These places match the traveller's interests and are not in the plan: " + ", ".join(listed) + ".",
+         "An unknown cost alone is not a reason to exclude a place: it stays unknown, never free. Include the most "
+         "relevant ones (say in the reason when the cost is unknown), check_selection the plan, and return the "
+@@ -638,7 +639,7 @@ def prompt_inputs(cands: CandidateSet) -> dict[str, str]:
+                "budget_style": _data_text(trip.budget_style, 20),
+                "required_places_known_total": _amount(req.known_total),
+                "required_places_with_unknown_cost": len(req.unknown_cost_ids),
+-               "target_non_meal_places": dict(zip(("min", "max"), target_range(trip.days))),
++               "target_non_meal_places": dict(zip(("min", "max"), target_range(trip.days, trip.activity_pace))),
+                "costs_cover": "entry fees and listed meals only"}
+     rows = []
+     for c in cands.candidates:
+@@ -990,7 +991,7 @@ def top_up(cands: CandidateSet, selected: list[PlannedItem],
+     Never an excluded place, never past the trip's maximum of non-meal places, and never a place that would put
+     the plan over budget (an unknown cost is "undetermined", not over: it stays unknown, never free). Returns
+     (selected, the remaining alternatives, one line per addition)."""
+-    interests, (low, high) = cands.trip.interests, target_range(cands.trip.days)
++    interests, (low, high) = cands.trip.interests, target_range(cands.trip.days, cands.trip.activity_pace)
+     selected, pool, notes = list(selected), list(alternatives), []
+ 
+     def sights() -> list[PlannedItem]:  # the ones that can be visited: a place closed all trip does not count
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/day_balance.py b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/day_balance.py
+index 3861384..2b05442 100644
+--- a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/day_balance.py
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/day_balance.py
+@@ -58,7 +58,7 @@ class Planner:
+         self.ctx = ctx
+         self.view = ctx.travel.cached_view()  # never a lookup, never a guess written into the cache
+         self.limit = ctx.rules.max_walk_minutes or QualityRules().long_walk_minutes
+-        self.targets = dict(zip(ctx.dates, daily_targets(len(ctx.dates))))
++        self.targets = dict(zip(ctx.dates, daily_targets(len(ctx.dates), ctx.trip.activity_pace)))
+         self._fits: dict = {}
+         self._orders: dict = {}
+ 
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/itinerary_planner.py b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/itinerary_planner.py
+index 12cf995..8ca8536 100644
+--- a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/itinerary_planner.py
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/itinerary_planner.py
+@@ -651,8 +651,8 @@ Rules:
+    moving a place (delete it from the old date).
+ 7. You choose only dates and order. Never write times, durations, travel minutes or prices.
+ 8. Day density: each date in the trip context has "suggested_non_meal_places" (lighter arrival and departure
+-   days). Give a full day two or three non-meal places when there are enough and check_day fits them, plus a
+-   restaurant where a meal fits. There are {place_count} places for {days} dates: with fewer places than the
++   days), set for the traveller's "activity_pace". Give each date about that many non-meal places (at most one
++   more) when there are enough and check_day fits them, plus a restaurant where a meal fits. There are {place_count} places for {days} dates: with fewer places than the
+    suggestions, some dates stay light. That is correct. NEVER repeat a place to fill a date.
+ 9. "python_proposal" in the trip context is a complete plan Python already built and checked: nearby places
+    grouped on one date, each date in a short walking order, a restaurant at a meal time. Start from it. Change
+@@ -679,14 +679,15 @@ TASK_EXPECTED_OUTPUT = ("A DayAssignment: one entry per trip date with the order
+ def prompt_inputs(ctx: PlanningContext) -> dict[str, str]:
+     """The kickoff inputs: dates, rules and each selected place's facts per date, as JSON data blocks."""
+     trip = ctx.trip
+-    targets = daily_targets(len(ctx.dates))
++    targets = daily_targets(len(ctx.dates), trip.activity_pace)
+     context = {"destination": _data_text(trip.destination, 60), "travellers": trip.travellers,
+                "dates": [{"date": str(d), "weekday": f"{d:%a}", "suggested_non_meal_places": t}
+                          for d, t in zip(ctx.dates, targets)],
+                "planning_day": f"{ctx.rules.day_start}-{ctx.rules.day_end}",
+                "max_walk_minutes": ctx.rules.max_walk_minutes,
+                "interests": [_data_text(i, 40) for i in trip.interests[:10]],
+-               "budget_style": _data_text(trip.budget_style, 20)}
++               "budget_style": _data_text(trip.budget_style, 20),
++               "activity_pace": trip.activity_pace or "balanced"}
+     if ctx.proposal is not None:
+         context["python_proposal"] = {str(d.date): d.place_ids for d in ctx.proposal.days}
+     rows = []
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/plan_quality.py b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/plan_quality.py
+index f55998e..c2bf467 100644
+--- a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/plan_quality.py
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/plan_quality.py
+@@ -44,23 +44,43 @@ class QualityIssue(BaseModel):
+ FULL_DAY_TARGET = 2  # non-meal places on a full sightseeing day; up to one more when it fits
+ LIGHT_DAY_TARGET = 1  # arrival and departure days of a trip of three days or more
+ EXTRA_PER_DAY = 1
++# The traveller's saved activity pace sets the full-day target (balanced = the default above). Arrival and
++# departure days stay light. Still a target, never a quota: opening hours, walking limits, verified travel times,
++# the budget and the verifier's rules decide what is actually planned.
++PACE_FULL_DAY_TARGET = {"relaxed": 1, "balanced": FULL_DAY_TARGET, "packed": 3}
+ 
+ 
+-def daily_targets(n_days: int) -> list[int]:
++def _full_day_target(pace: str | None) -> int:
++    return PACE_FULL_DAY_TARGET.get(pace or "balanced", FULL_DAY_TARGET)
++
++
++_NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
++
++
++def full_day_words(pace: str | None = None) -> str:
++    """How many non-meal places a full day has at this pace, in words: "two or three" for balanced."""
++    full = _full_day_target(pace)
++    return f"{_NUMBER_WORDS[full]} or {_NUMBER_WORDS[full + EXTRA_PER_DAY]}"
++
++
++def daily_targets(n_days: int, pace: str | None = None) -> list[int]:
+     """The non-meal places a useful day has, per trip date: lighter first and last days on longer trips.
+ 
+     A target, never a quota: a day with fewer feasible places stays lighter, and nothing is added to reach it.
++    `pace` (relaxed | balanced | packed, None = balanced) scales the full days.
+     """
+     if n_days <= 0:
+         return []
++    full = _full_day_target(pace)
++    light = min(LIGHT_DAY_TARGET, full)
+     if n_days <= 2:
+-        return [FULL_DAY_TARGET] * n_days
+-    return [LIGHT_DAY_TARGET] + [FULL_DAY_TARGET] * (n_days - 2) + [LIGHT_DAY_TARGET]
++        return [full] * n_days
++    return [light] + [full] * (n_days - 2) + [light]
+ 
+ 
+-def target_range(n_days: int) -> tuple[int, int]:
++def target_range(n_days: int, pace: str | None = None) -> tuple[int, int]:
+     """(min, max) non-meal places for the whole trip: the daily targets, and one more per day at most."""
+-    low = sum(daily_targets(n_days))
++    low = sum(daily_targets(n_days, pace))
+     return low, low + EXTRA_PER_DAY * max(n_days, 0)
+ 
+ 
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/research.py b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/research.py
+index 30939b4..98519a1 100644
+--- a/Final-Mini-Project/scenario-3-trip-planner/kit/planning/research.py
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/planning/research.py
+@@ -32,6 +32,8 @@ class TripRequest(BaseModel):
+     end_date: IsoDate
+     interests: list[str] = Field(default_factory=list)
+     budget_style: str | None = None  # budget | mid-range | splurge (saved preferences)
++    # How full the days are (saved preference): scales the daily targets, never a quota (planning/plan_quality.py)
++    activity_pace: Literal["relaxed", "balanced", "packed"] | None = None
+     required_places: list[str] = Field(default_factory=list)  # places the traveller explicitly asked for
+     # Scheduling preferences (saved preferences or the request; the Coordinator fills them in)
+     max_walk_minutes: int | None = Field(default=None, ge=1, le=240, strict=True)  # longest walk between stops
+diff --git a/Final-Mini-Project/scenario-3-trip-planner/kit/tests/planning/test_activity_pace.py b/Final-Mini-Project/scenario-3-trip-planner/kit/tests/planning/test_activity_pace.py
+new file mode 100644
+index 0000000..24f20f0
+--- /dev/null
++++ b/Final-Mini-Project/scenario-3-trip-planner/kit/tests/planning/test_activity_pace.py
+@@ -0,0 +1,40 @@
++"""The traveller's activity pace scales the daily targets: a preference, never a quota, never past the rules."""
++import pytest
++
++from planning.plan_quality import daily_targets, full_day_words, target_range
++from planning.research import TripRequest
++from planning.verification import MAX_SIGHTS_PER_DAY
++
++TRIP = {"destination": "Amman", "currency": "USD", "travellers": 2, "start_date": "2026-11-05",
++        "end_date": "2026-11-09"}
++
++
++def test_balanced_and_no_pace_are_todays_targets():
++    assert daily_targets(5) == daily_targets(5, "balanced") == daily_targets(5, None) == [1, 2, 2, 2, 1]
++    assert target_range(5) == target_range(5, "balanced")
++
++
++def test_relaxed_plans_fewer_and_packed_more_on_full_days():
++    assert daily_targets(5, "relaxed") == [1, 1, 1, 1, 1]
++    assert daily_targets(5, "packed") == [1, 3, 3, 3, 1]  # arrival and departure days stay light
++    assert target_range(5, "relaxed")[0] < target_range(5, "balanced")[0] < target_range(5, "packed")[0]
++
++
++@pytest.mark.parametrize("pace", ["relaxed", "balanced", "packed"])
++def test_no_pace_asks_for_more_than_the_verifier_allows_in_a_day(pace):
++    low, high = target_range(7, pace)
++    assert max(daily_targets(7, pace)) + 1 <= MAX_SIGHTS_PER_DAY  # target plus the one extra that may fit
++    assert high <= 7 * MAX_SIGHTS_PER_DAY
++
++
++def test_the_trip_request_carries_the_saved_pace_and_refuses_other_values():
++    assert TripRequest.model_validate({**TRIP, "activity_pace": "packed"}).activity_pace == "packed"
++    assert TripRequest.model_validate(TRIP).activity_pace is None
++    with pytest.raises(ValueError):
++        TripRequest.model_validate({**TRIP, "activity_pace": "turbo"})
++
++
++def test_the_messages_describe_a_full_day_at_the_travellers_pace():
++    assert full_day_words() == full_day_words("balanced") == "two or three"  # today's wording
++    assert full_day_words("relaxed") == "one or two"
++    assert full_day_words("packed") == "three or four"

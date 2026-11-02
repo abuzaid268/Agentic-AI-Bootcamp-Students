@@ -651,8 +651,8 @@ Rules:
    moving a place (delete it from the old date).
 7. You choose only dates and order. Never write times, durations, travel minutes or prices.
 8. Day density: each date in the trip context has "suggested_non_meal_places" (lighter arrival and departure
-   days). Give a full day two or three non-meal places when there are enough and check_day fits them, plus a
-   restaurant where a meal fits. There are {place_count} places for {days} dates: with fewer places than the
+   days), set for the traveller's "activity_pace". Give each date about that many non-meal places (at most one
+   more) when there are enough and check_day fits them, plus a restaurant where a meal fits. There are {place_count} places for {days} dates: with fewer places than the
    suggestions, some dates stay light. That is correct. NEVER repeat a place to fill a date.
 9. "python_proposal" in the trip context is a complete plan Python already built and checked: nearby places
    grouped on one date, each date in a short walking order, a restaurant at a meal time. Start from it. Change
@@ -679,14 +679,15 @@ TASK_EXPECTED_OUTPUT = ("A DayAssignment: one entry per trip date with the order
 def prompt_inputs(ctx: PlanningContext) -> dict[str, str]:
     """The kickoff inputs: dates, rules and each selected place's facts per date, as JSON data blocks."""
     trip = ctx.trip
-    targets = daily_targets(len(ctx.dates))
+    targets = daily_targets(len(ctx.dates), trip.activity_pace)
     context = {"destination": _data_text(trip.destination, 60), "travellers": trip.travellers,
                "dates": [{"date": str(d), "weekday": f"{d:%a}", "suggested_non_meal_places": t}
                          for d, t in zip(ctx.dates, targets)],
                "planning_day": f"{ctx.rules.day_start}-{ctx.rules.day_end}",
                "max_walk_minutes": ctx.rules.max_walk_minutes,
                "interests": [_data_text(i, 40) for i in trip.interests[:10]],
-               "budget_style": _data_text(trip.budget_style, 20)}
+               "budget_style": _data_text(trip.budget_style, 20),
+               "activity_pace": trip.activity_pace or "balanced"}
     if ctx.proposal is not None:
         context["python_proposal"] = {str(d.date): d.place_ids for d in ctx.proposal.days}
     rows = []

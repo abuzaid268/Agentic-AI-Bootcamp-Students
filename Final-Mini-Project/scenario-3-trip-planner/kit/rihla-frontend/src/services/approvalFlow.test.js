@@ -83,7 +83,7 @@ describe('approval', () => {
 
   it('explains each refusal', async () => {
     respond(403, { detail: 'Trip has not passed real verification.' })
-    await assert.rejects(approveTrip('s', 'a'), /did not pass verification/)
+    await assert.rejects(approveTrip('s', 'a'), /not passed verification/)
     respond(404, { detail: 'No pending action for this session' })
     await assert.rejects(approveTrip('s', 'a'), /no approval waiting/)
     respond(503, { detail: 'Traveller ID is not configured: set TRAVEL_TRAVELLER_ID on the server.' })
