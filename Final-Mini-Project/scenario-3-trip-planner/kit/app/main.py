@@ -1,4 +1,3 @@
-import os
 import json
 import hashlib
 import logging
@@ -14,9 +13,12 @@ from app.memory import get_session
 from app.orchestrator import orchestrate_trip
 from app.trip_store import TripStoreError, get_trip_from_store, list_trips_from_store, save_trip_to_store
 from app.diagnostics import classify_error, safe_traceback
+from app.auth import install_auth, traveller_id_for_request
 
 
 app = FastAPI(title="Rihla Trip Planner")
+# Google sign-in (app/auth): the signed-in user's identity, RIHLA_AUTH_REQUIRED, CSRF and session ownership.
+install_auth(app)
 
 # uvicorn's own error logger: printed in the backend console.
 logger = logging.getLogger("uvicorn.error")
@@ -255,7 +257,8 @@ def approve(request: ApproveRequest):
 
         # Configuration is checked after the integrity checks: a tampered or
         # unverified action is refused (403) whatever the server's settings.
-        traveller_id = os.getenv("TRAVEL_TRAVELLER_ID", "").strip()
+        # The signed-in user's own traveller; TRAVEL_TRAVELLER_ID only for an anonymous call to the open contract.
+        traveller_id = traveller_id_for_request()
 
         if not traveller_id:
             raise HTTPException(
@@ -294,7 +297,7 @@ MAX_LISTED_TRIPS = 50  # newest first
 
 
 def _store_traveller() -> str:
-    traveller_id = os.getenv("TRAVEL_TRAVELLER_ID", "").strip()
+    traveller_id = traveller_id_for_request()  # the signed-in user's traveller, never one the browser sends
     if not traveller_id:
         raise HTTPException(
             status_code=503,
@@ -305,7 +308,7 @@ def _store_traveller() -> str:
 
 @app.get("/api/trips")
 def list_trips():
-    """The approved trips saved in the Rihla Trip Store for this server's traveller (summaries only)."""
+    """The approved trips saved in the Rihla Trip Store for the signed-in user's traveller (summaries only)."""
     traveller_id = _store_traveller()
     try:
         trips = list_trips_from_store(traveller_id)[:MAX_LISTED_TRIPS]
@@ -323,7 +326,7 @@ def list_trips():
 
 @app.get("/api/trips/{trip_id}")
 def get_trip(trip_id: str):
-    """One approved trip with its full itinerary, only if it belongs to this server's traveller."""
+    """One approved trip with its full itinerary, only if it belongs to the signed-in user's traveller."""
     traveller_id = _store_traveller()
     try:
         trip = get_trip_from_store(trip_id)
