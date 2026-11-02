@@ -5,6 +5,7 @@ import {
   CalendarDays,
   Compass,
   Download,
+  FlaskConical,
   MapPin,
   Plane,
   Plus,
@@ -17,13 +18,15 @@ import {
   Users,
   Wallet,
 } from 'lucide-react'
-import { deleteSavedTrip, getSavedTrip, listSavedTrips, summarizeSavedTrip } from '../services/savedTrips'
+import {
+  deleteSavedTrip, getSavedTrip, listSavedTrips, loadSampleTrips, removeSampleTrips, summarizeSavedTrip,
+} from '../services/savedTrips'
 import { FALLBACK_IMAGE, formatDate, formatMoney } from '../services/itineraryAdapter'
 import { getApprovedTrip, listApprovedTrips } from '../services/tripApi'
-import { filterTrips, mergeTrips, STATUS_LABELS, storeTripResult } from '../services/myTrips'
+import { FILTERS, filterTrips, lostApprovals, mergeTrips, STATUS_LABELS, storeTripResult } from '../services/myTrips'
 import { useAuth } from '../auth/authContext'
-
-const FILTERS = ['All Trips', 'Verified', 'Not verified']
+import { AuthRequiredError } from '../auth/authApi'
+import NavAuth from '../auth/NavAuth'
 
 function loadLocal() {
   return listSavedTrips().map(summarizeSavedTrip)
@@ -36,7 +39,7 @@ function formatRange(start, end) {
 
 export default function MyTrips() {
   const navigate = useNavigate()
-  const { user } = useAuth() // RequireAuth (main.jsx) only renders this page for a signed-in user
+  const { user, sessionExpired } = useAuth() // RequireAuth (main.jsx) only renders this page for a signed-in user
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState('All Trips')
   const [local, setLocal] = useState(loadLocal)
@@ -44,27 +47,54 @@ export default function MyTrips() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
 
-  // Approved trips come from the Rihla Trip Store through the backend: loaded on every visit and refresh.
-  const loadStore = useCallback(async () => {
-    setStore((s) => ({ ...s, loading: true }))
-    try {
-      setStore({ trips: await listApprovedTrips(), loading: false, error: '' })
-    } catch (err) {
-      setStore({ trips: [], loading: false, error: err instanceof Error ? err.message : 'Saved trips could not be loaded.' })
-    }
+  // Approved trips come from the Rihla Trip Store through the backend: loaded on every visit and refresh, and again
+  // on "Try again" or after logging in again (a 401 means the session ended).
+  const [reloadKey, setReloadKey] = useState(0)
+  const loadStore = useCallback(() => {
+    setStore((s) => ({ ...s, loading: true, error: '' }))
+    setReloadKey((key) => key + 1)
   }, [])
   useEffect(() => {
     let cancelled = false
     listApprovedTrips()
       .then((trips) => !cancelled && setStore({ trips, loading: false, error: '' }))
-      .catch((err) => !cancelled && setStore({
-        trips: [], loading: false, error: err instanceof Error ? err.message : 'Saved trips could not be loaded.',
-      }))
+      .catch((err) => {
+        if (cancelled) return
+        if (err instanceof AuthRequiredError) {
+          setStore({ trips: [], loading: false, error: '' })
+          sessionExpired(() => loadStore())
+          return
+        }
+        setStore({ trips: [], loading: false, error: err instanceof Error ? err.message : 'Saved trips could not be loaded.' })
+      })
     return () => { cancelled = true }
-  }, [])
+  }, [reloadKey, loadStore, sessionExpired])
 
   const trips = mergeTrips(store.trips, local, { storeAvailable: !store.error })
   const filteredTrips = filterTrips(trips, search, activeFilter)
+  const lost = store.loading ? [] : lostApprovals(trips, { storeAvailable: !store.error })
+  const samplesLoaded = trips.some((t) => t.status === 'sample')
+
+  // Sample trips: labelled demo data, added only on request, never mixed up with the traveller's own trips.
+  const handleLoadSamples = () => {
+    setError('')
+    try {
+      loadSampleTrips()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sample trips could not be loaded.')
+    }
+    setLocal(loadLocal())
+  }
+  const handleRemoveSamples = () => {
+    setError('')
+    try {
+      removeSampleTrips()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sample trips could not be removed.')
+    }
+    setLocal(loadLocal())
+    if (activeFilter === 'Samples') setActiveFilter('All Trips')
+  }
 
   // The full trip for the dashboard or the PDF: from the Trip Store for an approved trip (with this browser's
   // copy for the request details), else this browser's draft.
@@ -76,7 +106,8 @@ export default function MyTrips() {
     }
     if (!entry) throw new Error('That trip is no longer saved in this browser.')
     const aiResult = entry.approval ? { ...entry.aiResult, approval: entry.approval } : entry.aiResult
-    return { request: entry.request, aiResult, sessionId: entry.id }
+    const request = entry.sample ? { ...entry.request, sampleTrip: true, sampleLabel: entry.sampleLabel } : entry.request
+    return { request, aiResult, sessionId: entry.id }
   }
 
   const openTrip = async (card) => {
@@ -86,6 +117,10 @@ export default function MyTrips() {
       const { request, aiResult, sessionId } = await resolveTrip(card)
       navigate('/trip', { state: { ...request, sessionId, aiResult, fromSaved: true, ownerUid: user?.uid } })
     } catch (err) {
+      if (err instanceof AuthRequiredError) { // the session ended: log in again, then open it
+        sessionExpired(() => openTrip(card))
+        return
+      }
       setError(err instanceof Error ? err.message : 'The trip could not be opened.')
       setLocal(loadLocal())
     } finally {
@@ -101,6 +136,10 @@ export default function MyTrips() {
       const { downloadItineraryPdf } = await import('../services/pdfExport')  // loaded on first use
       downloadItineraryPdf({ aiResult, request, approval: aiResult.approval || null })
     } catch (err) {
+      if (err instanceof AuthRequiredError) {
+        sessionExpired(() => downloadPdf(card))
+        return
+      }
       setError(err instanceof Error ? err.message : 'The PDF could not be created.')
     } finally {
       setBusy('')
@@ -109,7 +148,8 @@ export default function MyTrips() {
 
   const removeTrip = (trip) => {
     if (!trip.localId) return
-    if (!window.confirm(`Delete your ${trip.destination} trip from this browser? This cannot be undone.`)) return
+    const what = trip.status === 'sample' ? `the sample ${trip.destination} trip` : `your ${trip.destination} trip`
+    if (!window.confirm(`Delete ${what} from this browser? This cannot be undone.`)) return
     setError('')
     try {
       deleteSavedTrip(trip.localId)
@@ -141,12 +181,9 @@ export default function MyTrips() {
             <span className="font-bold text-[#256a77]">My Trips</span>
           </div>
 
-          <Link
-            to="/login"
-            className="rounded-full bg-[#245c6a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#347989]"
-          >
-            Log In
-          </Link>
+          <div className="rounded-full bg-[#245c6a] p-1 text-white">
+            <NavAuth />
+          </div>
         </nav>
       </header>
 
@@ -249,9 +286,41 @@ export default function MyTrips() {
             <button type="button" onClick={loadStore} className="font-semibold underline">Try again</button>
           </p>
         )}
+        {lost.length > 0 && (
+          <p role="alert" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+            <strong>The Trip Store no longer has {lost.length === 1 ? 'one of your approved trips' : `${lost.length} of your approved trips`}.</strong>{' '}
+            The simulated store keeps trips in memory, so a restart erased {lost.length === 1 ? 'it' : 'them'}.
+            The {lost.length === 1 ? 'card below shows' : 'cards below show'} the copy this browser kept; it is not in
+            your account any more.
+          </p>
+        )}
+
+        {/* SAMPLE TRIPS: demo data, only on request, always labelled */}
+        <div className="mb-8 flex flex-wrap items-center gap-3 text-sm">
+          {!samplesLoaded ? (
+            <button
+              type="button"
+              onClick={handleLoadSamples}
+              className="inline-flex items-center gap-2 rounded-full border border-[#dce9ec] bg-white px-4 py-2 font-semibold text-[#245c6a] hover:bg-[#e1eff1]"
+            >
+              <FlaskConical size={17} /> Load Sample Trips
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleRemoveSamples}
+              className="inline-flex items-center gap-2 rounded-full border border-[#dce9ec] bg-white px-4 py-2 font-semibold text-[#a35c5c] hover:bg-red-50"
+            >
+              <Trash2 size={17} /> Remove sample trips
+            </button>
+          )}
+          <span className="text-[#8297a0]">
+            Sample trips are demo data for previewing this page. Your own saved trips are never changed.
+          </span>
+        </div>
 
         {/* TRIP CARDS */}
-        {filteredTrips.length > 0 ? (
+        {store.loading && trips.length === 0 ? null : filteredTrips.length > 0 ? (
           <div className="grid gap-7 md:grid-cols-2 xl:grid-cols-3">
             {filteredTrips.map((trip) => (
               <article
@@ -269,12 +338,15 @@ export default function MyTrips() {
 
                   <span
                     className={`absolute left-5 top-5 flex items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-bold backdrop-blur-xl ${
-                      trip.status !== 'draft'
-                        ? 'border-emerald-200 bg-emerald-50/90 text-emerald-700'
-                        : 'border-amber-200 bg-amber-50/90 text-amber-700'
+                      trip.status === 'sample'
+                        ? 'border-violet-200 bg-violet-50/90 text-violet-700'
+                        : trip.status !== 'draft'
+                          ? 'border-emerald-200 bg-emerald-50/90 text-emerald-700'
+                          : 'border-amber-200 bg-amber-50/90 text-amber-700'
                     }`}
                   >
-                    {trip.status !== 'draft' ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                    {trip.status === 'sample' ? <FlaskConical size={14} />
+                      : trip.status !== 'draft' ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
                     {STATUS_LABELS[trip.status]}
                   </span>
 
@@ -319,6 +391,7 @@ export default function MyTrips() {
                     </div>
                   </div>
 
+                  {trip.sampleLabel && <p className="mt-4 text-xs leading-5 text-violet-700">{trip.sampleLabel}</p>}
                   {trip.note && <p className="mt-4 text-xs leading-5 text-amber-700">{trip.note}</p>}
 
                   <div className="mt-6 flex items-center gap-3 border-t border-[#edf2f3] pt-5">
@@ -368,15 +441,15 @@ export default function MyTrips() {
             <p className="mt-2 text-sm text-[#8297a0]">
               {trips.length
                 ? 'Try another destination or filter.'
-                : 'Approve a verified trip, or save a draft, from the itinerary page.'}
+                : 'Approve a trip from its itinerary page to save it to your account, or save a draft in this browser.'}
             </p>
           </div>
         )}
 
         <div className="mt-10 rounded-2xl border border-[#d7e8ea] bg-[#e6f2f3] p-5 text-sm leading-6 text-[#64848d]">
-          <strong>Where trips are kept:</strong> approved trips are saved in the Rihla Trip Store through the
-          backend. Drafts (and a copy of each approved trip) are kept in this browser only: clearing site data, or
-          another browser or device, will not show them. No account sign-in is involved yet.
+          <strong>Where trips are kept:</strong> trips you approve are saved to your account in the Rihla Trip Store
+          and come back whenever you sign in. Drafts and sample trips stay in this browser only and are never shown as
+          approved; logging out clears them from this browser.
         </div>
 
         <footer className="pt-12 text-center text-sm text-[#8aa0aa]">

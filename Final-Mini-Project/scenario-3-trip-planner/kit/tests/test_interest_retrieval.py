@@ -81,7 +81,7 @@ def test_recorded_pages_are_tagged_by_the_current_rules():
 
 # ------------------------------------------------------------------ research size
 def test_a_longer_trip_researches_more_places():
-    assert attraction_limit(3) == 15 and attraction_limit(6) == 24 and attraction_limit(14) == 30
+    assert attraction_limit(2) == attraction_limit(6) == attraction_limit(14) == 30  # the widest choice, then filtered
 
 
 # ------------------------------------------------------------------ the structured trip form

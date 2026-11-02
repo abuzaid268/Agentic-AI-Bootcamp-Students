@@ -18,8 +18,8 @@ from app.auth import sessions
 from app.auth.config import settings
 from app.auth.identity import _current_user
 
-PROTECTED_PREFIXES = ("/api/chat", "/api/approve", "/api/trips", "/api/voice")
-SESSION_BOUND_PATHS = ("/api/chat", "/api/approve")
+PROTECTED_PREFIXES = ("/api/chat", "/api/approve", "/api/accept", "/api/trips", "/api/voice", "/api/whatif")
+SESSION_BOUND_PATHS = ("/api/chat", "/api/approve", "/api/accept", "/api/whatif", "/api/whatif/apply", "/api/whatif/options")
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 MAX_BOUND_BODY = 1_000_000
 MAX_TRACKED_SESSIONS = 20_000

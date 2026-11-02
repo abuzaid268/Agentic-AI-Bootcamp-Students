@@ -12,6 +12,8 @@ from app.verification_loop import verify_with_retries
 from planning.research import ResearchBundle
 from app.research_adapter import ResearchInputError, run_research_pipeline
 from app.traveller_memory import apply_preferences
+from planning.evidence import checkable_bundle
+from researcher.mcp_client import stage
 from app.diagnostics import budget_decisions, performance_summary, research_summary
 from app.coverage import (
     assess_coverage,
@@ -375,7 +377,8 @@ def _orchestrate_trip(
     started = time.perf_counter()
     if research_bundle is None:
         try:
-            research_bundle = run_research_pipeline(trip_info)
+            with stage("researcher"):
+                research_bundle = run_research_pipeline(trip_info)
         except ResearchInputError as error:
             return {
                 "status": "needs_clarification",
@@ -410,12 +413,32 @@ def _orchestrate_trip(
         print("2. ResearchBundle received")
         print("\n".join(research_summary(research_bundle)))
 
+        # The attractions source failed and returned nothing: say so, propose nothing, never fill in sights.
+        attraction_failures = [f for f in research_bundle.failures if f.tool == "find_attractions"]
+        if attraction_failures and not any(p.category == "attraction" for p in research_bundle.places):
+            return {
+                "status": "research_unavailable",
+                "message": (
+                    f"I could not load attractions for {research_bundle.trip.destination}: the attractions source is "
+                    f"unavailable right now ({attraction_failures[0].code}). I did not make a plan, so nothing was "
+                    "proposed or saved. Please try again in a few minutes."
+                ),
+            }
+
         destination = research_bundle.trip.destination
         hours_lookup = create_hours_lookup(destination)
         # Walks over the threshold (the traveller's, else RIHLA_MAX_WALK_MINUTES, 30) are measured by car too.
         walk_limit = research_bundle.trip.max_walk_minutes or max_walk_minutes()
         travel_lookup = create_travel_lookup(destination, mode="foot", ride_after_minutes=walk_limit)
         llm = create_planning_llm()
+
+        # Plan from places whose hours, price and walking legs can be checked, when there are enough of them
+        # (planning/evidence.py): nothing is filled in; what is set aside is said in the plan's limitations.
+        started_evidence = time.perf_counter()
+        research_bundle, evidence_notes = checkable_bundle(research_bundle, travel_lookup)
+        timings["evidence_ms"] = round((time.perf_counter() - started_evidence) * 1000)
+        for note in evidence_notes:
+            print("   evidence:", note)
 
         planning_result = run_planning_pipeline(
             research_bundle,
@@ -536,6 +559,7 @@ def _orchestrate_trip(
         notes = " ".join(filter(None, [coverage.warning(), density.message()])) or None
         summary = traveller_summary(trip_info, planning_result["budget_report"],
                                     planning_result.get("planner_report"), final_model)
+        summary["limitations"] = list(summary.get("limitations") or []) + evidence_notes
 
         # Session memory for later revisions: the whole plan, so a change needs no new research or plan.
         plan_version = None

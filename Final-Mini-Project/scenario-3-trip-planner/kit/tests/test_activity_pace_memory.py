@@ -128,7 +128,8 @@ def test_each_signed_in_user_plans_with_their_own_saved_pace(two_users):
         r = chat(bob, "s-bob")
         assert planned_with(orchestrate) == {"activity_pace": "packed"}
     assert memory.asked == [alice_tid, bob_tid]
-    assert r.json()["memory_notes"] == ["Used for this plan: activity pace: x."]
+    assert r.json()["memory_notes"] == ["Welcome back. Your saved preferences: pace: packed.",
+                                        "Used for this plan: activity pace: x."]
 
 
 def test_a_signed_in_user_cannot_plan_with_someone_elses_preferences(two_users):

@@ -25,12 +25,14 @@ def default_llm() -> LLM:
                api_key=os.environ["OPENROUTER_API_KEY"], temperature=0)
 
 
-ATTRACTION_LIMIT_MIN, ATTRACTION_LIMIT_MAX = 15, 30
+ATTRACTION_LIMIT_MIN, ATTRACTION_LIMIT_MAX = 30, 30
+RESTAURANT_LIMIT = 20
 
 
 def attraction_limit(days: int) -> int:
-    """How many attractions to research: enough for about two or three a day plus alternatives, so a long trip
-    is not planned from the same 15 places a weekend gets (15 up to a 3-day trip, 24 for 6 days, at most 30)."""
+    """How many attractions to research: the most the tool gives, whatever the trip length. Many listings lack opening
+    hours, a price or a measurable route; planning/evidence.py sets those aside when enough checkable ones remain,
+    which needs a wide enough choice (15 left a 2-day Istanbul trip with 1 checkable sight)."""
     return max(ATTRACTION_LIMIT_MIN, min(ATTRACTION_LIMIT_MAX, 4 * days))
 
 
@@ -52,7 +54,7 @@ class ResearchSession:
         for place in t.required_places:
             self._call("find_attractions", {"city": city, "interests": place, "limit": 3})
             self._call("get_opening_hours", {"place_name": place, "city": city})
-        self._call("find_restaurants", {"city": city, "budget": t.budget_style or "any", "limit": 10})
+        self._call("find_restaurants", {"city": city, "budget": t.budget_style or "any", "limit": RESTAURANT_LIMIT})
         for currency in sorted(self._listing_currencies() - {t.currency}):
             self._call("convert_currency", {"amount": 1, "from_currency": currency, "to_currency": t.currency})
 
