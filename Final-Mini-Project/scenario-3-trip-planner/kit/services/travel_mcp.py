@@ -146,7 +146,7 @@ async def list_trips(traveller_id: str) -> dict:
 @mcp.tool()
 async def get_preferences(traveller_id: str) -> dict:
     """A traveller's saved preferences (persistent memory): budget_style, interests, dietary needs, walking
-    tolerance and max_walk_minutes, home_currency, travel_party, notes. Use it at the start of a session when
+    tolerance and max_walk_minutes, home_currency, travel_party, notes, activity_pace. Use it at the start of a session when
     you know the traveller_id. ok=false with code traveller_not_found means nothing is saved yet: ask."""
     return {**await call("GET", f"/api/travellers/{traveller_id}/preferences"), **STORE}
 
@@ -155,7 +155,8 @@ async def get_preferences(traveller_id: str) -> dict:
 async def save_preferences(traveller_id: str, preferences: dict) -> dict:
     """Save or update a traveller's lasting preferences (merged into what is stored). Fields: budget_style
     (budget|mid-range|splurge), interests [str], dietary [str], walking_tolerance (low|medium|high),
-    max_walk_minutes (int), home_currency (str), travel_party (str), notes (str). Use it when the traveller
+    max_walk_minutes (int), home_currency (str), travel_party (str), notes (str), activity_pace
+    (relaxed|balanced|packed: how full the days are; a preference, never a quota). Use it when the traveller
     states a lasting preference ('remember that I am vegetarian'), not for one-off details of this trip."""
     return {**await call("PUT", f"/api/travellers/{traveller_id}/preferences", body=preferences), **STORE}
 
