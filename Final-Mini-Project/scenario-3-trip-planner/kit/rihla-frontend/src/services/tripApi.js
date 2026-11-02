@@ -1,3 +1,5 @@
+import { AuthRequiredError } from '../auth/authApi.js'
+
 function buildTripMessage(trip) {
   const details = [
     `Plan a trip to ${trip.destination}.`,
@@ -69,9 +71,21 @@ export async function createTrip(trip, sessionId) {
   if (!response.ok) {
     let detail = `Request failed (${response.status}). No trip was generated.`
 
+    // Not signed in (or the session expired): the caller asks to log in and retries once.
+    if (response.status === 401) {
+      throw new AuthRequiredError(await readError(response, 'Please log in to plan your trip.'))
+    }
+
+    // The backend's own diagnosis (app/diagnostics.py: which failure, and the error id in its log) is more
+    // useful than a generic message for its status.
+    let diagnosed = null
+
     try {
       const error = await response.json()
       if (typeof error.detail === 'string') detail = error.detail
+      if (typeof error.error?.message === 'string' && error.error.message && typeof error.detail === 'string') {
+        diagnosed = error.detail
+      }
       const invalid = response.status === 422 ? validationMessage(error.detail) : null
       if (invalid) throw new Error(invalid)
     } catch (err) {
@@ -79,7 +93,7 @@ export async function createTrip(trip, sessionId) {
       // Keep the HTTP error message.
     }
 
-    throw new Error(STATUS_MESSAGES[response.status] || detail)
+    throw new Error(diagnosed || STATUS_MESSAGES[response.status] || detail)
   }
 
   try {

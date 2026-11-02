@@ -119,6 +119,17 @@ export function deleteSavedTrip(id, storage = defaultStorage()) {
   return remaining.length !== trips.length
 }
 
+// Logout: these copies belong to whoever was signed in, not to the next person using this browser. The
+// approved trips themselves stay in the Rihla Trip Store (the record) and come back with the next sign-in.
+export function clearSavedTrips(storage = defaultStorage()) {
+  if (!storage) return
+  try {
+    storage.removeItem(STORAGE_KEY)
+  } catch {
+    // blocked storage holds nothing to clear
+  }
+}
+
 export function isTripSaved(id, storage = defaultStorage()) {
   return Boolean(id) && readAll(storage).some((t) => t.id === id)
 }

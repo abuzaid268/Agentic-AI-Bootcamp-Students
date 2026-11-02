@@ -1,8 +1,11 @@
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { createTrip } from './services/tripApi'
 import { validateTripResult } from './services/tripResult'
 import { validateTripForm } from './services/tripForm'
+import { useAuth } from './auth/authContext'
+import { AuthRequiredError } from './auth/authApi'
+import NavAuth, { Avatar } from './auth/NavAuth'
 
 const LIVE_AI_ENABLED = import.meta.env.VITE_ENABLE_LIVE_AI === 'true'
 
@@ -21,6 +24,8 @@ import {
 
 export default function App() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const { user, loggingOut, requireAuth, openLogin, logout, sessionExpired } = useAuth()
   const [destination, setDestination] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -42,7 +47,46 @@ export default function App() {
     return () => clearInterval(timer)
   }, [isLoading])
 
-  const handleSubmit = async (event) => {
+  // An old /login link, or a private page visited as a guest (RequireAuth), lands here with { openLogin: true }:
+  // open the modal over the home page, once. With returnTo, signing in goes back to that page.
+  useEffect(() => {
+    if (!location.state?.openLogin) return
+    const returnTo = location.state.returnTo
+    if (returnTo) requireAuth(() => navigate(returnTo), 'protected')
+    else openLogin()
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.state, location.pathname, navigate, openLogin, requireAuth])
+
+  // `owner` is the signed-in user the trip is generated for: the dashboard shows it to that account only.
+  const generateTrip = async (trip, owner) => {
+    setElapsed(0)
+    setIsLoading(true)
+
+    try {
+      const sessionId = crypto.randomUUID()
+      const result = validateTripResult(await createTrip(trip, sessionId))
+
+      navigate('/trip', {
+        state: {
+          ...trip,
+          sessionId,
+          aiResult: result,
+          ownerUid: owner.uid,
+        },
+      })
+    } catch (err) {
+      if (err instanceof AuthRequiredError) {
+        // The session ended: log in again, then this same trip is requested once more.
+        sessionExpired((signedIn) => generateTrip(trip, signedIn))
+        return
+      }
+      setError(err instanceof Error ? err.message : 'Unable to plan your trip.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSubmit = (event) => {
     event.preventDefault()
     if (isLoading) return // one request at a time
     setError('')
@@ -71,25 +115,9 @@ export default function App() {
       return
     }
 
-    setElapsed(0)
-    setIsLoading(true)
-
-    try {
-      const sessionId = crypto.randomUUID()
-      const result = validateTripResult(await createTrip(trip, sessionId))
-
-      navigate('/trip', {
-        state: {
-          ...trip,
-          sessionId,
-          aiResult: result,
-        },
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to plan your trip.')
-    } finally {
-      setIsLoading(false)
-    }
+    // A guest is asked to log in first; nothing is sent to the planner until then. The form keeps what they
+    // entered, and this exact trip is generated once, right after they sign in.
+    requireAuth((signedIn) => generateTrip(trip, signedIn), 'generate')
   }
 
   return (
@@ -101,7 +129,8 @@ export default function App() {
             "linear-gradient(90deg, rgba(8,29,41,.76), rgba(8,29,41,.2)), url('https://images.unsplash.com/photo-1470770841072-f978cf4d019e?w=2000&q=90')",
         }}
       >
-        <nav className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-7 py-7 md:px-12">
+        {/* z-30, above the hero content (z-10, painted later): the account menu opens over the planner card. */}
+        <nav className="relative z-30 mx-auto flex w-full max-w-7xl items-center justify-between px-7 py-7 md:px-12">
           <a href="/" className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
             <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-lg">
               <Plane size={22} />
@@ -115,9 +144,12 @@ export default function App() {
             <a href="/my-trips" className="transition hover:text-white">My Trips</a>
           </div>
 
-          <button className="hidden items-center gap-2 rounded-full border border-white/40 bg-white/15 px-5 py-3 text-sm font-medium backdrop-blur-xl transition hover:bg-white/25 md:flex">
-            Start Exploring <ArrowRight size={16} />
-          </button>
+          <div className="hidden items-center gap-3 md:flex">
+            <button className="hidden items-center gap-2 rounded-full border border-white/40 bg-white/15 px-5 py-3 text-sm font-medium backdrop-blur-xl transition hover:bg-white/25 lg:flex">
+              Start Exploring <ArrowRight size={16} />
+            </button>
+            <NavAuth />
+          </div>
 
           <button
             type="button"
@@ -132,9 +164,40 @@ export default function App() {
 
         {menuOpen && (
           <div className="relative z-10 mx-7 flex flex-col gap-1 rounded-2xl border border-white/30 bg-[#0d2a37]/90 p-3 text-sm backdrop-blur-xl md:hidden">
+            {user && (
+              <div className="mb-1 flex items-center gap-3 border-b border-white/10 px-3 pb-3 pt-1">
+                <Avatar user={user} />
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{user.name}</p>
+                  {user.email && <p className="truncate text-xs text-white/60">{user.email}</p>}
+                </div>
+              </div>
+            )}
             <a href="#planner" onClick={() => setMenuOpen(false)} className="rounded-xl px-3 py-2 hover:bg-white/10">AI Trip Planner</a>
             <a href="/my-trips" className="rounded-xl px-3 py-2 hover:bg-white/10">My Trips</a>
-            <a href="/login" className="rounded-xl px-3 py-2 hover:bg-white/10">Log In</a>
+            {user ? (
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() =>
+                  logout().catch((err) => setError(`${err.message} You are still signed in; please try again.`))
+                }
+                className="rounded-xl px-3 py-2 text-left hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+              >
+                {loggingOut ? 'Logging out…' : 'Log Out'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  openLogin()
+                }}
+                className="rounded-xl px-3 py-2 text-left hover:bg-white/10"
+              >
+                Log In
+              </button>
+            )}
           </div>
         )}
 
