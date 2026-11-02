@@ -13,7 +13,8 @@ from app.memory import get_session
 from app.orchestrator import orchestrate_trip
 from app.trip_store import TripStoreError, get_trip_from_store, list_trips_from_store, save_trip_to_store
 from app.diagnostics import classify_error, safe_traceback
-from app.auth import install_auth, traveller_id_for_request
+from app.auth import current_user, install_auth, traveller_id_for_request
+from app.traveller_memory import session_preferences, traveller_id_from
 
 
 app = FastAPI(title="Rihla Trip Planner")
@@ -40,6 +41,21 @@ def chat(request: ChatRequest):
 
     session = get_session(request.session_id)
 
+    # Whose saved preferences this plan may use: the signed-in user's own traveller (never one the body names),
+    # else the contract's request user (CONTRACT §5). A session belongs to one traveller.
+    traveller_id = traveller_id_for_request() if current_user() is not None else traveller_id_from(request.user)
+    if traveller_id and session.get("traveller_id") not in (None, traveller_id):
+        message = "This conversation belongs to another traveller. Please start a new conversation."
+        return ChatResponse(session_id=request.session_id, status="traveller_mismatch", message=message)
+    if traveller_id:
+        session["traveller_id"] = traveller_id
+
+    # Persistent memory through MCP get_preferences: loaded once per session (each new trip is a new session).
+    memory_notes: list[str] = []
+    preferences, load_status = session_preferences(session, session.get("traveller_id"))
+    if load_status == "unavailable":
+        memory_notes.append("I could not load your saved preferences right now, so this plan does not use them.")
+
     try:
         result = orchestrate_trip(
             request.message,
@@ -47,6 +63,7 @@ def chat(request: ChatRequest):
             trip_form=request.trip.model_dump(mode="json") if request.trip else None,
             base_version=request.base_version,
             revision_request=request.revision,
+            preferences=preferences,
         )
 
     except Exception as exc:
@@ -67,6 +84,9 @@ def chat(request: ChatRequest):
                 "error": {"code": code, "message": message, "error_id": error_id, "retryable": retryable},
             },
         )
+
+    if result.get("preferences_used"):
+        memory_notes.append("Used for this plan: " + "; ".join(result["preferences_used"]) + ".")
 
     status = result["status"]
     itinerary = None
@@ -175,6 +195,7 @@ def chat(request: ChatRequest):
         budget=deepcopy(result.get("budget")) if itinerary is not None else None,
         plan_version=result.get("plan_version"),
         revision=deepcopy(revision_info),
+        memory_notes=memory_notes,
     )
 
 
@@ -308,7 +329,7 @@ def _store_traveller() -> str:
 
 @app.get("/api/trips")
 def list_trips():
-    """The approved trips saved in the Rihla Trip Store for the signed-in user's traveller (summaries only)."""
+    """The approved trips saved in the Rihla Trip Store for this server's traveller (summaries only)."""
     traveller_id = _store_traveller()
     try:
         trips = list_trips_from_store(traveller_id)[:MAX_LISTED_TRIPS]
@@ -326,7 +347,7 @@ def list_trips():
 
 @app.get("/api/trips/{trip_id}")
 def get_trip(trip_id: str):
-    """One approved trip with its full itinerary, only if it belongs to the signed-in user's traveller."""
+    """One approved trip with its full itinerary, only if it belongs to this server's traveller."""
     traveller_id = _store_traveller()
     try:
         trip = get_trip_from_store(trip_id)

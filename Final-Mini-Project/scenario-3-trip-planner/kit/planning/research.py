@@ -32,6 +32,8 @@ class TripRequest(BaseModel):
     end_date: IsoDate
     interests: list[str] = Field(default_factory=list)
     budget_style: str | None = None  # budget | mid-range | splurge (saved preferences)
+    # How full the days are (saved preference): scales the daily targets, never a quota (planning/plan_quality.py)
+    activity_pace: Literal["relaxed", "balanced", "packed"] | None = None
     required_places: list[str] = Field(default_factory=list)  # places the traveller explicitly asked for
     # Scheduling preferences (saved preferences or the request; the Coordinator fills them in)
     max_walk_minutes: int | None = Field(default=None, ge=1, le=240, strict=True)  # longest walk between stops

@@ -150,6 +150,7 @@ def build_research_request(trip_info: dict[str, Any]) -> TripRequest:
 
     for optional_field in (
         "budget_style",
+        "activity_pace",
         "max_walk_minutes",
         "day_start",
         "day_end",

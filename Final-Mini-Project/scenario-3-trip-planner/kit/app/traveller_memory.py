@@ -20,6 +20,7 @@ from app.mcp_app_client import call_app_tool
 from app.research_adapter import INTEREST_WORDS
 
 TRAVELLER_ID = re.compile(r"[A-Za-z0-9_.-]{2,40}")  # what the Trip Store accepts
+ACTIVITY_PACES = ("relaxed", "balanced", "packed")  # planning.research.TripRequest.activity_pace
 
 # Saying that something should be kept beyond this trip: required before anything is saved.
 _LASTING = re.compile(r"\b(remember|from now on|for (all )?future trips|always|save (this|that|it) "
@@ -158,7 +159,8 @@ def describe_preferences(prefs: dict[str, Any] | None) -> str | None:
         return None
     parts = []
     for key, label in (("dietary", "diet"), ("interests", "interests"), ("budget_style", "budget style"),
-                       ("max_walk_minutes", "walks up to (minutes)"), ("home_currency", "currency"),
+                       ("max_walk_minutes", "walks up to (minutes)"), ("activity_pace", "pace"),
+                       ("home_currency", "currency"),
                        ("travel_party", "travelling as")):
         value = prefs.get(key)
         if isinstance(value, list):
@@ -197,6 +199,11 @@ def apply_preferences(trip_info: dict[str, Any], prefs: dict[str, Any] | None) -
             and 1 <= walk <= 240:
         trip_info["max_walk_minutes"] = walk
         used.append(f"walks of up to {walk} minutes")
+    # A soft target for how full each day is (planning/plan_quality.py), never a quota.
+    pace = prefs.get("activity_pace")
+    if not trip_info.get("activity_pace") and pace in ACTIVITY_PACES:
+        trip_info["activity_pace"] = pace
+        used.append(f"activity pace: {pace}")
     currency = prefs.get("home_currency")
     if not trip_info.get("currency") and isinstance(currency, str) and re.fullmatch(r"[A-Za-z]{3}", currency):
         trip_info["currency"] = currency.upper()

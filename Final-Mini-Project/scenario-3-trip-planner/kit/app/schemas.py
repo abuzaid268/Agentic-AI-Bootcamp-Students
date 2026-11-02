@@ -37,6 +37,7 @@ class ChatRequest(BaseModel):
     # request on an older version than the session's is refused rather than applied to the wrong plan.
     base_version: str | None = Field(default=None, max_length=40)
     revision: bool = False  # sent by the dashboard's "Ask for a change" box
+    user: dict[str, Any] | None = None  # CONTRACT §1/§5: {"traveller_id": "TRV-101", "name": "..."}, optional
 
 
 class ChatResponse(BaseModel):
@@ -53,6 +54,7 @@ class ChatResponse(BaseModel):
     budget: dict[str, Any] | None = None  # orchestrator.budget_summary(): known, unknown and not-included costs
     plan_version: str | None = None  # the session's plan this response shows: send it back as base_version
     revision: dict[str, Any] | None = None  # app/revision.py: outcome, changes, unchanged dates, who chose
+    memory_notes: list[str] = Field(default_factory=list)  # app/traveller_memory.py: saved preferences used, or why not
 
 
 class ErrorBody(BaseModel):

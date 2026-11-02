@@ -11,6 +11,7 @@ from app.revision import plan_state_from, run_trip_revision
 from app.verification_loop import verify_with_retries
 from planning.research import ResearchBundle
 from app.research_adapter import ResearchInputError, run_research_pipeline
+from app.traveller_memory import apply_preferences
 from app.diagnostics import budget_decisions, performance_summary, research_summary
 from app.coverage import (
     assess_coverage,
@@ -214,6 +215,31 @@ def orchestrate_trip(
     trip_form: dict | None = None,
     base_version: str | None = None,
     revision_request: bool = False,
+    preferences: dict | None = None,
+) -> dict:
+    """
+    Coordinate the trip planning workflow.
+
+    `preferences` are the identified traveller's saved preferences (app/traveller_memory.py). They fill only
+    the trip details the traveller did not give; what was used is returned as "preferences_used".
+    """
+    used: list[str] = []
+    result = _orchestrate_trip(user_request, session_id, research_bundle, trip_form, base_version,
+                               revision_request, preferences, used)
+    if used:
+        result["preferences_used"] = used
+    return result
+
+
+def _orchestrate_trip(
+    user_request: str,
+    session_id: str | None,
+    research_bundle: ResearchBundle | None,
+    trip_form: dict | None,
+    base_version: str | None,
+    revision_request: bool,
+    preferences: dict | None,
+    preferences_used: list[str],
 ) -> dict:
     """
     Coordinate the trip planning workflow.
@@ -303,6 +329,9 @@ def orchestrate_trip(
         if duration is not None:
             trip_info["duration_days"] = duration
             update_trip_details(session_id, {"duration_days": duration})
+
+    # STEP 6b: a returning traveller's saved preferences fill what this request left out
+    preferences_used.extend(apply_preferences(trip_info, preferences))
 
     # STEP 7: Validate required fields
     required_fields = (

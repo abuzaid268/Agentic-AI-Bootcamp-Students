@@ -58,7 +58,7 @@ class Planner:
         self.ctx = ctx
         self.view = ctx.travel.cached_view()  # never a lookup, never a guess written into the cache
         self.limit = ctx.rules.max_walk_minutes or QualityRules().long_walk_minutes
-        self.targets = dict(zip(ctx.dates, daily_targets(len(ctx.dates))))
+        self.targets = dict(zip(ctx.dates, daily_targets(len(ctx.dates), ctx.trip.activity_pace)))
         self._fits: dict = {}
         self._orders: dict = {}
 
