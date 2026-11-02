@@ -1,0 +1,19 @@
+{
+  "provider": "OurAirports",
+  "url": "https://ourairports.com/data/",
+  "licence": "Public domain",
+  "attribution": "Airport data from OurAirports (ourairports.com), released to the public domain.",
+  "files": "https://davidmegginson.github.io/ourairports-data/ (airports.csv, countries.csv, regions.csv)",
+  "built": "2026-11-02",
+  "airports": 9611,
+  "with_iata": 8799,
+  "with_scheduled_service": 4134,
+  "by_type": {
+    "large_airport": 1175,
+    "medium_airport": 4105,
+    "small_airport": 4331
+  },
+  "skipped": {
+    "not a passenger airport type": 76719
+  }
+}
