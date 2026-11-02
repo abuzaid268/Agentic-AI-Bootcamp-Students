@@ -21,6 +21,7 @@ import { deleteSavedTrip, getSavedTrip, listSavedTrips, summarizeSavedTrip } fro
 import { FALLBACK_IMAGE, formatDate, formatMoney } from '../services/itineraryAdapter'
 import { getApprovedTrip, listApprovedTrips } from '../services/tripApi'
 import { filterTrips, mergeTrips, STATUS_LABELS, storeTripResult } from '../services/myTrips'
+import { useAuth } from '../auth/authContext'
 
 const FILTERS = ['All Trips', 'Verified', 'Not verified']
 
@@ -35,6 +36,7 @@ function formatRange(start, end) {
 
 export default function MyTrips() {
   const navigate = useNavigate()
+  const { user } = useAuth() // RequireAuth (main.jsx) only renders this page for a signed-in user
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState('All Trips')
   const [local, setLocal] = useState(loadLocal)
@@ -82,7 +84,7 @@ export default function MyTrips() {
     setBusy(card.id)
     try {
       const { request, aiResult, sessionId } = await resolveTrip(card)
-      navigate('/trip', { state: { ...request, sessionId, aiResult, fromSaved: true } })
+      navigate('/trip', { state: { ...request, sessionId, aiResult, fromSaved: true, ownerUid: user?.uid } })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The trip could not be opened.')
       setLocal(loadLocal())

@@ -32,6 +32,14 @@ describe('createTrip backend failures', () => {
     await assert.rejects(createTrip(TRIP, 's'), /temporarily unavailable/)
   })
 
+  it("shows the backend's diagnosis and error id when it gives one", async () => {
+    respondWith(503, {
+      detail: 'The AI provider could not be reached. No trip was generated; please try again. (error id 018c1a54)',
+      error: { code: 'llm_unavailable', message: 'The AI provider could not be reached.', error_id: '018c1a54', retryable: true },
+    })
+    await assert.rejects(createTrip(TRIP, 's'), /AI provider could not be reached.*018c1a54/)
+  })
+
   it('keeps a readable backend detail for other errors', async () => {
     respondWith(403, { detail: 'Trip has not passed real verification.' })
     await assert.rejects(createTrip(TRIP, 's'), /Trip has not passed real verification/)
