@@ -270,6 +270,9 @@ import { FlightSearch } from './features/flights'
 ```
 
 **The form:**
+- An optional **Departure country** picker (from `GET /api/airports/countries`). Choosing a country empties the
+  "From" box and limits it to that country's airports; "Any country" searches worldwide. Without the countries
+  route (an older server), the picker is simply not shown.
 - "From" and "To" are `AirportSearch` boxes from `features/airports`. They search worldwide and need an airport with an IATA code.
 - Round trip or one way.
 - Departure and return dates. Past dates can't be picked.

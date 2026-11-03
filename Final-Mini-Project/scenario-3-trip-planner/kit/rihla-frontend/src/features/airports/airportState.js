@@ -63,6 +63,15 @@ export function statusMessage({ status, count, error, ambiguous, searchable }) {
   return ''
 }
 
+// The countries list from GET /api/airports/countries, cleaned: [{ code, name, airports }] sorted as the server
+// sent them. Entries without a 2-letter code or a name are dropped, never guessed.
+export function sanitizeCountries(body) {
+  if (!body || !Array.isArray(body.countries)) throw new Error('The server sent an unexpected countries answer.')
+  return body.countries
+    .filter((c) => c && /^[A-Z]{2}$/.test(c.code || '') && textOrNull(c.name))
+    .map((c) => ({ code: c.code, name: c.name.trim(), airports: Number.isInteger(c.airports) ? c.airports : null }))
+}
+
 // Why a departure and arrival pair cannot be searched as a flight, or '' when it can.
 export function routeError(departure, arrival) {
   if (!departure || !arrival) return ''
