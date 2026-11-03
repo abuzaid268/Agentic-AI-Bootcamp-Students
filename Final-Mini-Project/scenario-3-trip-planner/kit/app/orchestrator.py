@@ -260,6 +260,18 @@ def _orchestrate_trip(
         session = get_session(session_id)
         previous_trip_details = session.get("trip_details", {}).copy()
 
+    # The dashboard's change box always edits this session's current plan. Do not spend a
+    # Coordinator call classifying it or let a missing plan fall through to new-trip planning.
+    if revision_request:
+        if session is None:
+            return {
+                "status": "needs_clarification",
+                "message": "There is no existing itinerary to revise in this session. Plan a trip first, then ask "
+                           "for changes.",
+                "revision": {"outcome": "no_plan"},
+            }
+        return run_trip_revision(session, user_request, previous_trip_details, base_version=base_version)
+
     # STEP 2: Coordinator Agent. The structured form's own fields are used as
     # entered (the exact interests the traveller selected); the LLM reads only
     # free-text preferences, and is not called when there are none.
@@ -282,12 +294,6 @@ def _orchestrate_trip(
 
     intent = trip_info["intent"]
     print(f"1. Coordinator detected intent: {intent}")
-    # The dashboard's "Ask for a change" box only sends changes to the plan on screen: never a new trip.
-    if revision_request and session is not None and session.get("plan_state") is not None \
-            and intent != "revise_trip":
-        print(f"   change box: treated as a revision (the Coordinator said {intent})")
-        intent = "revise_trip"
-
     # STEP 3: Handle revision requests: the plan kept in this session is revised in place (targeted changes,
     # the Revision Agent for the choices, then the same verification as a new plan). See app/revision.py.
     if intent == "revise_trip":
