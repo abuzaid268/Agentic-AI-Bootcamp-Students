@@ -46,10 +46,16 @@ Both candidates were checked on 2026-11-02.
 
 | `RIHLA_ENV` | Meaning |
 |---|---|
-| not set | `development` |
+| not set | `development`, and a warning is logged once ("RIHLA_ENV is not set …") |
 | `test` | `test` |
 | `production` | `production` |
-| any other value, such as `prod` or `staging` | `production`, so a typo fails closed |
+| any other value, such as `prod` or `staging` | `production` (logged), so a typo fails closed |
+
+**Unset means development.** A server can't tell a laptop from a public launch, so leaving the variable unset keeps
+development easy. Production is made explicit by the deployment tooling: `docker-compose.prod.yml` sets
+`RIHLA_ENV=production` literally. Deploy with
+`docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait`; see
+`docs/deployment-readiness.md` §3.
 
 The provider is chosen once, at start-up:
 
@@ -306,7 +312,7 @@ from app.flights import install_flights
 install_flights(app)
 ```
 
-**For any public deployment, set `RIHLA_ENV=production`.**
+**For any public deployment, use `docker-compose.prod.yml`, which sets `RIHLA_ENV=production`, or set it in the hosting tool.**
 - Without it, the server counts as development and shows DEMO flights, clearly labelled.
 - With it and no approved LIVE provider, flight search says it is unavailable.
 

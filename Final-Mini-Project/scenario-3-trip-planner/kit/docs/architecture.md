@@ -1,7 +1,8 @@
 # Rihla: architecture and feature status
 
 **What this document is:**
-- A draft, written by Member 3 on 2026-11-03 from the code on branch `feature/destinations-flights` (commit `b162484`, based on `main` at `3d9fd86`) and from read-only inspection of `origin/backup/rihla-integration-wip`.
+- A draft by Member 3, written on 2026-11-03 from the code on branch `feature/destinations-flights` (started from `main` at `3d9fd86`).
+- Updated the same day after `main` moved to `6df209d` (PR #15, which merged WHAT IF, approval and sign-in work). `main` was read read-only; this branch is not merged into it yet.
 - It is kept under `docs/` so that it doesn't overwrite the shared `README.md`, which is the official kit's.
 
 **Status words used here:**
@@ -31,7 +32,7 @@
 1. Sign in with Google.
 2. Fill in the trip form: destination, dates, travellers, budget, interests.
 3. The crew plans. The traveller sees the itinerary, the budget, the verification and the sources.
-4. The traveller asks for changes, which become targeted revisions. A WHAT IF can be tried as well (pending merge, see §5).
+4. The traveller asks for changes, which become targeted revisions. A WHAT IF can be tried as well (on `main`, see §5).
 5. **Approve** saves the trip (`TRIP-…`). It then appears in **My Trips** and can be exported to PDF.
 
 ## 2. Team
@@ -118,7 +119,7 @@ flowchart LR
   Fl --> Duffel
   Fl --> Air
   Wx --> OpenMeteo
-  WhatIf -.->|"pending merge"| Chat
+  Proxy -->|"/api/whatif (on main)"| WhatIf
   WIS -.->|"optional read_tool for rain"| WhatIf
   WIS --> Wx
 ```
@@ -149,13 +150,13 @@ This is from the code, with Member 1 as owner. **The LLM decides; Python calcula
 
 | Area | Status | Notes |
 |---|---|---|
-| Crew planning, verification, revision | **Tested** on `main` (Member 1) | 1180 backend tests pass on this branch. 1 known failure in `test_trip_store_integration` (Member 1's file, an uncaught `httpx.HTTPStatusError`). |
+| Crew planning, verification, revision | **Tested** on `main` (Member 1) | 1211 backend tests pass on this branch (2026-11-03). 1 known failure in `test_trip_store_integration` (Member 1's file, an uncaught `httpx.HTTPStatusError`). |
 | Approval and saving to the Trip Store | **Tested** on `main` | Saving needs `TRAVEL_TRAVELLER_ID`; without it, approval answers 503 |
 | Google sign-in | **Tested** on `main` (Member 2) | `app.auth_app`. Protected: `/api/chat`, `/api/approve`, `/api/trips`. |
 | My Trips, PDF export | **Tested** on `main` (Member 2) | |
-| WHAT IF simulation (`app/whatif.py`) | **Pending merge** | On `backup/rihla-integration-wip` (WIP), not on `main` |
-| WHAT IF UI (`services/whatIf.js`) | **Pending merge** | Same branch |
-| WHAT IF fixtures and checks | **Tested**, **not integrated** | `docs/whatif.md`. Compatibility with the real `forecast_rain` was checked by hand against the WIP file. |
+| WHAT IF simulation (`app/whatif.py`, `/api/whatif`, `/api/whatif/apply`) | **On `main`** (PR #15, Member 1) | Tested by Member 1's `tests/test_whatif.py` on `main`. Not re-run in this review. |
+| WHAT IF UI (`services/whatIf.js`) | **On `main`** (Member 2) | |
+| WHAT IF fixtures and checks | **Tested**, **not integrated** | `docs/whatif.md`. On this branch only. Checked by hand against the real `forecast_rain`, which is the same file now on `main`. The fixtures have not been run through the simulation end to end. |
 | Worldwide destination search | **Tested**, **not integrated** | `docs/destinations.md`. Needs Member 1 to install the router and Member 2 to place the component. |
 | Airport search | **Tested**, **not integrated** | `docs/airports.md` |
 | Flight search | **Tested** with mocks, **not integrated** | `docs/flights.md`. Duffel: **unverified** (no token). DEMO is labelled. Production fails closed. |
@@ -171,10 +172,10 @@ This is from the code, with Member 1 as owner. **The LLM decides; Python calcula
 
 | Provider | Used by | Terms (checked) | Cost |
 |---|---|---|---|
-| Open-Meteo Geocoding (GeoNames) | `/api/destinations` | CC BY 4.0. The free API is non-commercial. | Free (non-commercial) |
+| Open-Meteo Geocoding (GeoNames) | `/api/destinations` | CC BY 4.0, "Location data based on GeoNames". The free API is non-commercial; commercial use needs a paid key on the `customer-` server. In production it's gated by the same licence decision as weather. | Free (non-commercial) |
 | OurAirports | `/api/airports` (bundled) | Public domain | Free, offline |
 | Duffel | `/api/flights` | TEST free. LIVE: $3 per order, plus $0.005 per search beyond a 1,500:1 search-to-booking ratio. | TEST $0. LIVE **can cost money with no bookings.** |
-| Open-Meteo Forecast | `/api/weather` | CC BY 4.0. The free API is non-commercial (fewer than 10,000 calls a day). Commercial use needs a paid plan, whose price isn't published. | Free (non-commercial) |
+| Open-Meteo Forecast | `/api/weather` | CC BY 4.0. The free API is non-commercial (fewer than 10,000 calls a day). Commercial use needs a paid plan, whose price isn't published. Production is gated (`app/open_meteo.py`). | Free (non-commercial) |
 | Kit's data: Wikivoyage, OSM Nominatim, Open-Meteo, Frankfurter, routing | Crew, through MCP | Replay cache locally. Live mode follows each source's policy (Nominatim: about 1 request per second, with a contact). | Free |
 | OpenRouter, `openai/gpt-4.1-mini` | Crew | About $0.40 per million input tokens and $1.60 per million output tokens, from third-party trackers, not the OpenRouter page. **Unverified.** | **The main running cost** (see `docs/deployment-readiness.md`) |
 | Firebase Authentication (Google) | Sign-in | Not reviewed in this pass (Member 2) | — |
@@ -204,7 +205,7 @@ This is from the code, with Member 1 as owner. **The LLM decides; Python calcula
 
 ## 8. Future improvements
 
-1. **Wire in Member 3's routers and components** (§5). Merge the WIP branch carefully, with Member 1.
+1. **Wire in Member 3's routers and components** (§5). First merge `feature/destinations-flights` into `main` through a reviewed PR; a trial merge against `6df209d` had no conflicts.
 2. **Add browser end-to-end tests** (Playwright) for the main journey and the comboboxes.
 3. **Move session memory and rate counters to a shared store** (for example Redis or SQLite) before running more than one worker.
 4. **Measure the LLM cost per plan** from `/api/chat` `performance` and set a per-request budget.

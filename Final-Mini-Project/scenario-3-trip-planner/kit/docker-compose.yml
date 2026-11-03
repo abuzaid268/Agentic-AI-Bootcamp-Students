@@ -39,6 +39,9 @@ services:
       TRAVEL_API_URL: http://travel-api:8103
       # The same key the travel-api service was started with (the MCP server sends it as X-API-Key).
       TRAVEL_API_KEY: ${TRAVEL_API_KEY:-dev-key-change-me}
+      # This file is for local use: development (labelled DEMO flights allowed). A public deployment adds
+      # docker-compose.prod.yml, which sets RIHLA_ENV=production literally. Never deploy this file alone.
+      RIHLA_ENV: ${RIHLA_ENV:-development}
     depends_on:
       travel-api:
         condition: service_healthy

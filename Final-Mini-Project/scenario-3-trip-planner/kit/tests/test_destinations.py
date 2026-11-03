@@ -33,10 +33,10 @@ class Provider:
         return httpx.Response(200, json=reply)
 
 
-def service(provider, clock=None, **kwargs):
+def service(provider, clock=None, environment="development", **kwargs):
     client = httpx.Client(transport=httpx.MockTransport(provider))
-    return DestinationSearch(client=client, url="https://geo.test/v1/search", clock=clock or (lambda: 1000.0),
-                             **kwargs)
+    return DestinationSearch(client=client, url=kwargs.pop("url", "https://geo.test/v1/search"),
+                             clock=clock or (lambda: 1000.0), environment=environment, **kwargs)
 
 
 def api(provider, **kwargs):
@@ -230,6 +230,73 @@ def test_concurrent_searches_respect_the_cap():
     for t in threads:
         t.join()
     assert outcomes.count("ok") == 5 and outcomes.count("rate_limited") == 15
+
+
+# ------------------------------------------------------------------ licence: production needs an explicit decision
+@pytest.fixture()
+def no_licence(monkeypatch):
+    for name in ("RIHLA_OPEN_METEO_API_KEY", "RIHLA_OPEN_METEO_NONCOMMERCIAL", "RIHLA_ENV"):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+@pytest.mark.parametrize("environment", ["production"])
+def test_production_without_a_licence_decision_never_calls_the_provider(no_licence, environment):
+    provider = Provider(PARI)
+    client = api(provider, environment=environment)
+    r = client.get("/api/destinations", params={"q": "Pari"})
+    assert r.status_code == 503 and r.json()["error"]["code"] == "destinations_unavailable"
+    assert r.json()["error"]["retryable"] is False and "type the destination yourself" in r.json()["error"]["message"]
+    assert "results" not in r.json() and provider.requests == []
+    status = client.get("/api/destinations/status").json()
+    assert status["available"] is False and "non-commercial" in status["notice"]
+    # even for input that would be refused anyway: the licence comes first
+    assert client.get("/api/destinations", params={"q": ""}).json()["error"]["code"] == "destinations_unavailable"
+
+
+@pytest.mark.parametrize("raw", ["production", "PRODUCTION", "prod", "staging"])
+def test_any_production_like_or_unknown_rihla_env_is_gated(no_licence, raw):
+    no_licence.setenv("RIHLA_ENV", raw)
+    provider = Provider(PARI)
+    client = httpx.Client(transport=httpx.MockTransport(provider))
+    search = DestinationSearch(client=client, url="https://geo.test/v1/search")
+    with pytest.raises(DestinationError) as raised:
+        search.search("Pari")
+    assert raised.value.code == "destinations_unavailable" and provider.requests == []
+
+
+def test_production_with_a_stated_non_commercial_use_calls_the_free_api(no_licence):
+    no_licence.setenv("RIHLA_OPEN_METEO_NONCOMMERCIAL", "true")
+    provider = Provider(PARI)
+    body = api(provider, environment="production").get("/api/destinations", params={"q": "Pari"}).json()
+    assert body["count"] == 3 and "apikey" not in provider.requests[0].url.params
+
+
+def test_a_paid_key_goes_to_the_customer_server_and_never_into_answers_or_logs(no_licence, caplog):
+    import logging
+    from app.destinations.service import CUSTOMER_URL
+    caplog.set_level(logging.INFO)
+    provider = Provider(PARI)
+    search = service(provider, environment="production", api_key="secret-geo-key-42", url=None)
+    app = FastAPI()
+    install_destinations(app, search)
+    text = TestClient(app).get("/api/destinations", params={"q": "Pari"}).text
+    sent = provider.requests[0].url
+    assert str(sent).startswith(CUSTOMER_URL) and sent.params["apikey"] == "secret-geo-key-42"
+    assert "secret-geo-key-42" not in text and "secret-geo-key-42" not in repr(search)
+    assert "apikey=REDACTED" in caplog.text and "secret-geo-key-42" not in caplog.text
+
+
+def test_development_and_test_use_the_free_api_without_a_decision(no_licence):
+    for environment in ("development", "test"):
+        provider = Provider(PARI)
+        assert service(provider, environment=environment).search("Pari")["count"] == 3
+
+
+def test_a_licensed_production_search_still_reports_provider_failures(no_licence):
+    no_licence.setenv("RIHLA_OPEN_METEO_NONCOMMERCIAL", "true")
+    r = api(Provider(httpx.ReadTimeout("slow")), environment="production").get("/api/destinations", params={"q": "Pari"})
+    assert r.status_code == 504 and r.json()["error"]["code"] == "provider_timeout" and "results" not in r.json()
 
 
 def test_install_is_idempotent_and_the_route_needs_no_sign_in():

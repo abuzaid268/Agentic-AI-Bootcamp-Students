@@ -12,6 +12,11 @@ as one, never filled in.
 
 Limits that keep the free provider usable for everyone: results are cached (shorter for an empty answer),
 and the number of provider calls per minute is capped for the whole server; a cached query never counts.
+
+Licence: Open-Meteo's free API is for non-commercial use only. In production the provider is called only after
+the team's explicit decision (app/open_meteo.py: a paid key, sent to the customer- server, or
+RIHLA_OPEN_METEO_NONCOMMERCIAL=true); otherwise every search answers 503 destinations_unavailable and the
+traveller can still type the destination.
 """
 from __future__ import annotations
 
@@ -26,7 +31,11 @@ from typing import Any, Callable
 
 import httpx
 
+from app.deployment_env import deployment_env
+from app.open_meteo import api_key as open_meteo_key, licence_allows, protect_httpx_logs
+
 PROVIDER_URL = "https://geocoding-api.open-meteo.com/v1/search"
+CUSTOMER_URL = "https://customer-geocoding-api.open-meteo.com/v1/search"  # paid plan ("prefix customer-")
 SOURCE = {
     "provider": "Open-Meteo Geocoding API (GeoNames)",
     "url": "https://open-meteo.com/en/docs/geocoding-api",
@@ -162,8 +171,15 @@ class DestinationSearch:
     def __init__(self, *, client: httpx.Client | None = None, url: str | None = None,
                  timeout_s: float | None = None, max_calls_per_minute: int | None = None,
                  cache_ttl_s: float = 6 * 3600, empty_ttl_s: float = 600, cache_entries: int = 512,
-                 clock: Callable[[], float] = time.monotonic):
-        self.url = url or os.getenv("RIHLA_DESTINATIONS_URL") or PROVIDER_URL
+                 clock: Callable[[], float] = time.monotonic, environment: str | None = None,
+                 api_key: str | None = None):
+        self.environment = environment or deployment_env()
+        self._key = (api_key if api_key is not None else open_meteo_key()) or None
+        self.allowed, self.reason = licence_allows(self.environment)
+        if self._key:  # a paid plan's key: commercial use is licensed
+            self.allowed, self.reason = True, None
+            protect_httpx_logs()
+        self.url = url or os.getenv("RIHLA_DESTINATIONS_URL") or (CUSTOMER_URL if self._key else PROVIDER_URL)
         timeout = timeout_s if timeout_s is not None else _env_number("RIHLA_DESTINATIONS_TIMEOUT_S", 4, 0.5, 30)
         contact = (os.getenv("TRAVEL_CONTACT") or "").strip()
         self._client = client or httpx.Client(
@@ -186,10 +202,20 @@ class DestinationSearch:
                                        "in a moment.", retryable=True, retry_after=wait)
             self._calls.append(now)
 
+    def __repr__(self) -> str:  # never show the key
+        return f"DestinationSearch(url={self.url!r}, environment={self.environment!r}, allowed={self.allowed})"
+
+    def status(self) -> dict:
+        """Whether city search can run here, without searching."""
+        return {"environment": self.environment, "available": self.allowed,
+                "notice": None if self.allowed else self.reason, **({"source": dict(SOURCE)} if self.allowed else {})}
+
     def _fetch(self, query: str, count: int, language: str) -> list:
+        params = {"name": query, "count": count, "language": language, "format": "json"}
+        if self._key:
+            params["apikey"] = self._key
         try:
-            response = self._client.get(self.url, params={"name": query, "count": count, "language": language,
-                                                          "format": "json"})
+            response = self._client.get(self.url, params=params)
         except httpx.TimeoutException as exc:
             raise DestinationError(504, "provider_timeout", "The city search service did not answer in time. "
                                    "Please try again.", retryable=True) from exc
@@ -217,6 +243,9 @@ class DestinationSearch:
         return results
 
     def search(self, raw_query: Any, *, limit: int = DEFAULT_LIMIT, language: str = "en") -> dict:
+        if not self.allowed:  # before anything else: no input makes an unlicensed call acceptable
+            raise DestinationError(503, "destinations_unavailable", "City search is not available on this service "
+                                   "right now. You can still type the destination yourself.")
         query = normalize_query(raw_query)
         limit = max(1, min(MAX_LIMIT, int(limit)))
         language = language.lower() if isinstance(language, str) and re.fullmatch(r"[A-Za-z]{2}", language) else "en"

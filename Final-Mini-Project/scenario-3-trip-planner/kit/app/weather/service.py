@@ -5,8 +5,8 @@ for non-commercial use only (https://open-meteo.com/en/terms; 600 calls/minute, 
 IP); commercial use needs a paid plan, whose key goes to customer-api.open-meteo.com. So:
 - development and test may use the free API;
 - production may call Open-Meteo only with RIHLA_OPEN_METEO_API_KEY (paid plan) or with
-  RIHLA_WEATHER_NONCOMMERCIAL=true (the team states the deployment is non-commercial: no ads, no subscriptions);
-  otherwise weather is reported unavailable.
+  RIHLA_OPEN_METEO_NONCOMMERCIAL=true (the team states the deployment is non-commercial: no ads, no subscriptions);
+  otherwise weather is reported unavailable. The same decision covers app/destinations (app/open_meteo.py).
 
 Nothing is invented: a value the provider does not give is null, a day beyond the 16-day forecast horizon is
 refused rather than filled, and a provider failure is reported (data_status UNAVAILABLE), never replaced.
@@ -19,7 +19,6 @@ import datetime as dt
 import logging
 import math
 import os
-import re
 import threading
 import time
 from collections import OrderedDict, deque
@@ -29,6 +28,7 @@ from typing import Any, Callable
 import httpx
 
 from app.deployment_env import deployment_env
+from app.open_meteo import api_key, licence_allows, protect_httpx_logs
 
 log = logging.getLogger("rihla.weather")  # never logs the API key or request URLs
 
@@ -188,24 +188,6 @@ def _env_number(name: str, default: float, low: float, high: float) -> float:
     return value if low <= value <= high else default
 
 
-class _RedactApiKey(logging.Filter):
-    """httpx logs every request URL at INFO; Open-Meteo's paid plan puts the key in the URL (&apikey=...)."""
-
-    _pattern = re.compile(r"(apikey=)[^&\s\"']+", re.IGNORECASE)
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        message = record.getMessage()
-        if "apikey=" in message.lower():
-            record.msg, record.args = self._pattern.sub(r"\1REDACTED", message), ()
-        return True
-
-
-def _protect_httpx_logs() -> None:
-    logger = logging.getLogger("httpx")
-    if not any(isinstance(f, _RedactApiKey) for f in logger.filters):
-        logger.addFilter(_RedactApiKey())
-
-
 class OpenMeteoProvider:
     """Calls the Open-Meteo forecast API: the free endpoint, or the customer endpoint with a paid plan's key."""
 
@@ -216,7 +198,7 @@ class OpenMeteoProvider:
         self._key = api_key
         self.commercial = bool(api_key)
         if api_key:
-            _protect_httpx_logs()
+            protect_httpx_logs()
         self.url = url or os.getenv("RIHLA_WEATHER_URL") or (CUSTOMER_URL if api_key else FREE_URL)
         timeout = timeout_s if timeout_s is not None else _env_number("RIHLA_WEATHER_TIMEOUT_S", 6, 1, 30)
         self._client = client or httpx.Client(timeout=timeout, headers={"User-Agent": "Rihla-trip-planner"})
@@ -257,17 +239,7 @@ class OpenMeteoProvider:
         return body
 
 
-def provider_allowed(environment: str) -> tuple[bool, str | None]:
-    """Whether this deployment may call Open-Meteo, and why not."""
-    if environment != "production":
-        return True, None
-    if (os.getenv("RIHLA_OPEN_METEO_API_KEY") or "").strip():
-        return True, None
-    if (os.getenv("RIHLA_WEATHER_NONCOMMERCIAL") or "").strip().lower() in ("1", "true", "yes"):
-        return True, None
-    return False, ("Open-Meteo's free API is for non-commercial use only. In production set "
-                   "RIHLA_OPEN_METEO_API_KEY (paid plan) or, for a non-commercial deployment, "
-                   "RIHLA_WEATHER_NONCOMMERCIAL=true.")
+provider_allowed = licence_allows  # the decision is shared with app/destinations: app/open_meteo.py
 
 
 class WeatherService:
@@ -283,7 +255,7 @@ class WeatherService:
         if provider is not None and provider.commercial:  # a paid plan's key: commercial use is licensed
             self.allowed, self.reason = True, None
         if provider is None and self.allowed:
-            provider = OpenMeteoProvider(api_key=(os.getenv("RIHLA_OPEN_METEO_API_KEY") or "").strip() or None)
+            provider = OpenMeteoProvider(api_key=api_key())
         self.provider = provider
         self._clock, self._monotonic = clock, monotonic
         self._ttl, self._max_entries = cache_ttl_s, cache_entries

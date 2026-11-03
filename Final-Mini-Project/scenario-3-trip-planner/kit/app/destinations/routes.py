@@ -16,6 +16,12 @@ def _service(request: Request) -> DestinationSearch:
     return service
 
 
+@router.get("/status")
+def destination_search_status(request: Request):
+    """Whether city search can run on this server (licence decision), before searching."""
+    return JSONResponse(_service(request).status(), headers={"Cache-Control": "no-store"})
+
+
 @router.get("")
 def search_destinations(
     request: Request,

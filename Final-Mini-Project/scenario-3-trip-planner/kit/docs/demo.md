@@ -27,7 +27,7 @@
    - `/api/destinations?q=Pari`: Paris (France), Paris (Texas) and Paris (Tennessee), with `ambiguous: true`.
    - `/api/airports?q=London`: LHR, LGW, STN and LCY, then YXU (Ontario), flagged.
    - `/api/flights?origin=TLV&destination=LHR&departure_date=…`: `data_mode: DEMO`, with every offer labelled.
-   - The same request with `RIHLA_ENV=production`: `503 flights_unavailable`. Production never shows made-up prices.
+   - The same request with `RIHLA_ENV=production`: `503 flights_unavailable`. Production never shows made-up prices. `/api/destinations` answers `503 destinations_unavailable` too, until the Open-Meteo licence is decided.
    - `/api/weather?latitude=41.01&longitude=28.98`: a real Open-Meteo forecast, `data_status: LIVE`. Call it again: `CACHED`.
 5. **Tests:** `python -m pytest -q` (about 1 minute) and `cd rihla-frontend && npm test`. Mention the one known failure, which is Member 1's.
 6. **Docker:** `docker compose up -d --build --wait`. All three containers become healthy. Then `docker compose down`.
@@ -65,7 +65,8 @@ python -c "from app.auth_app import app; from app.destinations import install_de
 | Airport search | **API working, not in the UI yet** | |
 | Flight comparison | **DEMO data only** | Duffel was never called with a real token |
 | Weather | **API working with live data, not in the UI yet** | |
-| WHAT IF | **Not on `main`** | On the WIP branch. Show it only if it is merged and tested by then. |
+| WHAT IF (Member 1 and 2) | **On `main`** (PR #15) | Try it on `main` before the demo; it was not re-run in this review. Call each result **hypothetical**. |
+| WHAT IF fixtures and weather adapter (Member 3) | **Tests only** | On `feature/destinations-flights`, not yet merged into `main`, and not run end to end |
 | Public deployment | **None** | Local Docker only |
 
 ## 5. Do NOT present as live or real
@@ -85,6 +86,9 @@ python -c "from app.auth_app import app; from app.destinations import install_de
 - [ ] `docker compose up -d --build --wait` shows three healthy containers, and `http://localhost:5173/health` is ok.
 - [ ] `.env` has `OPENROUTER_API_KEY`, the Firebase settings and `TRAVEL_TRAVELLER_ID`, and there is credit left on OpenRouter.
 - [ ] One trip has been planned beforehand as a fallback, in case the LLM is slow during the demo.
-- [ ] `RIHLA_ENV` is unset (development) for the DEMO flights, or `production` to show the fail-closed answer. Know which is on.
+- [ ] Know which environment is on:
+  - `RIHLA_ENV` unset means development, with DEMO flights and a warning in the server log;
+  - `RIHLA_ENV=production` shows the fail-closed answers for flights, and for weather and city search without a licence decision.
+- [ ] Never demo with `docker-compose.prod.yml` unless you mean to show production behaviour.
 - [ ] Internet is available for the live weather and destination calls. Otherwise use the tests.
 - [ ] Nobody says "real-time flight prices", "deployed" or "live" for recorded data.

@@ -36,18 +36,48 @@ The Docker setup itself is described in `DOCKER.md`, which covers the images, he
 | 2 | **Session memory is in process.** `app/memory.py` holds `sessions: dict`. | Member 1 | It needs a single worker, and is lost on restart. Several workers or instances would each see different sessions. |
 | 3 | **The replay cache knows only the recorded cities**, Istanbul and Amman (`services/cache`). | Member 1 and the team | A public app needs `TRAVEL_MODE=live`. Then each upstream's policy applies: OpenStreetMap Nominatim allows about one request per second and needs a contact (`TRAVEL_CONTACT`); Open-Meteo's free API is non-commercial; and so on. |
 | 4 | **Member 3's routers and components aren't wired in.** | Members 1 and 2 | The handoffs are in `docs/destinations.md`, `airports.md`, `flights.md` and `weather.md` |
-| 5 | **The WHAT IF feature isn't merged.** | Member 1 | It's on `backup/rihla-integration-wip` |
+| 5 | **This branch (`feature/destinations-flights`) isn't merged into `main`.** WHAT IF itself is on `main` since PR #15 (`6df209d`). | The team | Merge it through a reviewed PR first (a trial merge had no conflicts), then run the full test suite on the result |
 | 6 | **The AI cost per plan isn't measured.** | Member 1 | See §4 |
-| 7 | **Licensing decisions** | The team | Open-Meteo is free only for non-commercial use (Duffel LIVE costs money; see §4). Decide whether the deployment is non-commercial (`RIHLA_WEATHER_NONCOMMERCIAL=true`), and keep Duffel LIVE off. |
+| 7 | **Licensing decisions** | The team | Open-Meteo is free only for non-commercial use (Duffel LIVE costs money; see §4). Decide whether the deployment is non-commercial (`RIHLA_OPEN_METEO_NONCOMMERCIAL=true`), and keep Duffel LIVE off. |
 | 8 | **HTTPS and cookie settings** | Member 2 and the team | `RIHLA_COOKIE_SECURE=true`, `RIHLA_ALLOWED_ORIGINS=<the public origin>`, a strong `RIHLA_SESSION_SECRET`, and the Firebase authorised domains |
 
 ## 3. Configuration for a public deployment
 
-These are names only; every secret stays in the host's secret store or in `kit/.env`, never in Git or in an image.
+### Always deploy with the production overlay
+
+The server can't tell by itself whether it is a laptop or a public launch, so **production is set by the deployment command, not guessed.**
+
+```sh
+cd kit
+# TRAVEL_API_KEY must hold a private key (in kit/.env or the shell); compose refuses to start without one.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet      # check first
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+```
+
+**What `docker-compose.prod.yml` does:**
+- It sets `RIHLA_ENV=production` **literally** in the `app` service. It can't be left out, defaulted, or overridden from `.env` or the shell (`environment` takes precedence over `env_file`).
+- It requires `TRAVEL_API_KEY` (`${TRAVEL_API_KEY:?…}`), so the kit's public default key is not used.
+- It publishes only the web port: `app` (8000) and `travel-api` (8103) stay inside Docker. This uses Compose's `!reset` tag, so it needs Docker Compose 2.24 or newer.
+
+**Checked on 2026-11-03** with `docker compose … config`, printing only `RIHLA_ENV` and the ports:
+
+| Case | Result |
+|---|---|
+| Without `TRAVEL_API_KEY` | Compose refuses: "required variable TRAVEL_API_KEY is missing a value" |
+| With the overlay | `app` has `RIHLA_ENV=production`; `app` and `travel-api` publish no ports; `web` keeps 5173 |
+| `RIHLA_ENV=development` in the shell, with the overlay | Still `production` |
+| The base file alone (local use) | `RIHLA_ENV=development`, with ports 8000, 8103 and 5173 |
+
+**What still depends on people:**
+- **Running the base file alone** on a public host would be development. The server then logs a warning at start-up ("RIHLA_ENV is not set …"), and flights stay DEMO-labelled.
+- **Any other deployment tool** (a PaaS, systemd, Kubernetes) must set `RIHLA_ENV=production` itself.
+- **Unknown values** (`prod`, `staging`, typos) already count as production.
+
+The variables are listed below by name only; every secret stays in the host's secret store or in `kit/.env`, never in Git or in an image.
 
 | Variable | Production value | Notes |
 |---|---|---|
-| `RIHLA_ENV` | `production` | **Required.** Without it the server counts as development, and shows DEMO flights (labelled). |
+| `RIHLA_ENV` | `production` | **Required.** Set by `docker-compose.prod.yml`. Without it the server counts as development: it shows DEMO flights (labelled) and logs a warning. |
 | `OPENROUTER_API_KEY` | secret | The crew's LLM |
 | `OPENROUTER_MODEL` / `MODEL`, `RESEARCHER_MODEL` | as chosen | Cost depends on the model |
 | `RIHLA_LLM_TIMEOUT_SECONDS`, `RIHLA_LLM_MAX_RETRIES` | small | Fewer retries means a lower worst-case cost |
@@ -59,7 +89,7 @@ These are names only; every secret stays in the host's secret store or in `kit/.
 | `VITE_ENABLE_LIVE_AI` | as Member 2 decides | Read by `App.jsx` |
 | `DUFFEL_ACCESS_TOKEN`, `RIHLA_FLIGHTS_ALLOW_LIVE` | **not set** | Production then says flights are unavailable, and never shows sample prices |
 | `RIHLA_FLIGHTS_MAX_PER_MINUTE` / `_PER_DAY` | `10` / `60` if LIVE is ever approved | Per process |
-| `RIHLA_WEATHER_NONCOMMERCIAL` *or* `RIHLA_OPEN_METEO_API_KEY` | per the licensing decision | Without either, weather is unavailable in production |
+| `RIHLA_OPEN_METEO_NONCOMMERCIAL` *or* `RIHLA_OPEN_METEO_API_KEY` | per the licensing decision | One decision covers weather and city search (`app/open_meteo.py`). Without either, both are unavailable in production (`503 weather_unavailable` and `503 destinations_unavailable`). |
 | `RIHLA_WEATHER_MAX_PER_DAY`, `RIHLA_DESTINATIONS_MAX_PER_MINUTE` | defaults | Per process |
 
 **Security checks done in Member 3's code:**
@@ -115,9 +145,9 @@ This is a proposal; nothing is activated.
 
 1. **First, fix blockers 1 and 2** (persistent trips, and single-worker sessions), and **measure the LLM cost** (blocker 6).
 2. **Frontend:** the `web` container on the same VPS (simplest, with same-origin cookies), or Cloudflare Pages.
-3. **Backend:** one small VPS (price to be confirmed) running `travel-api` and `app` through `docker compose`, with only the web port public.
+3. **Backend:** one small VPS (price to be confirmed) running `travel-api` and `app` through `docker compose -f docker-compose.yml -f docker-compose.prod.yml`, with only the web port public.
 4. **Feature switches:**
-   - `RIHLA_ENV=production`;
+   - `RIHLA_ENV=production`, set by the overlay;
    - flights unavailable (no `DUFFEL_ACCESS_TOKEN`);
    - weather and destinations only after the non-commercial decision.
 5. **LLM:** prepaid OpenRouter credits with a key limit (to verify). Lower the retries. Consider a per-user daily plan limit, which Member 1 would add.
@@ -127,9 +157,9 @@ This is a proposal; nothing is activated.
 
 - [ ] Trips are stored persistently, and survive a `docker compose restart travel-api`.
 - [ ] A single app worker, or shared session storage.
-- [ ] `RIHLA_ENV=production` is set.
+- [ ] Deployed with `-f docker-compose.yml -f docker-compose.prod.yml`, or `RIHLA_ENV=production` set by the hosting tool. The start-up log shows no "RIHLA_ENV is not set" warning.
   - [ ] `/api/flights/status` shows `available: false`, or LIVE has been explicitly approved.
-  - [ ] `/api/weather/status` matches the licensing decision.
+  - [ ] `/api/weather/status` and `/api/destinations/status` match the Open-Meteo licensing decision.
 - [ ] `TRAVEL_API_KEY` is not `dev-key-change-me`, `RIHLA_SESSION_SECRET` is strong, and `RIHLA_COOKIE_SECURE=true` is set.
 - [ ] Only the web port is public. 8103 (`travel-api`) and 8000 (`app`) are closed.
 - [ ] HTTPS is on, and `RIHLA_ALLOWED_ORIGINS` is the public origin only.

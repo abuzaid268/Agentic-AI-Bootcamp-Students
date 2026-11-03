@@ -233,7 +233,7 @@ def test_provider_calls_are_capped_per_minute_and_per_day():
     ("production", None, "true", True), ("production", "paid-key", None, True),
 ])
 def test_production_needs_a_paid_key_or_a_stated_non_commercial_use(monkeypatch, env, key, flag, allowed):
-    for name, value in (("RIHLA_OPEN_METEO_API_KEY", key), ("RIHLA_WEATHER_NONCOMMERCIAL", flag)):
+    for name, value in (("RIHLA_OPEN_METEO_API_KEY", key), ("RIHLA_OPEN_METEO_NONCOMMERCIAL", flag)):
         if value is None:
             monkeypatch.delenv(name, raising=False)
         else:
@@ -244,7 +244,7 @@ def test_production_needs_a_paid_key_or_a_stated_non_commercial_use(monkeypatch,
 def test_production_without_permission_says_unavailable_and_calls_nobody(monkeypatch):
     monkeypatch.setenv("RIHLA_ENV", "production")
     monkeypatch.delenv("RIHLA_OPEN_METEO_API_KEY", raising=False)
-    monkeypatch.delenv("RIHLA_WEATHER_NONCOMMERCIAL", raising=False)
+    monkeypatch.delenv("RIHLA_OPEN_METEO_NONCOMMERCIAL", raising=False)
     client = api(WeatherService(clock=lambda: NOW))
     status = client.get("/api/weather/status").json()
     assert status["available"] is False and "non-commercial" in status["notice"]

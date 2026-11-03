@@ -52,7 +52,7 @@ These were checked on 2026-11-03 on Open-Meteo's own pages: [terms](https://open
 |---|---|
 | `development` (the default) or `test` | Yes, the free API. Development of a bootcamp project is non-commercial. |
 | `production` with `RIHLA_OPEN_METEO_API_KEY` | Yes, the customer endpoint (paid plan) |
-| `production` with `RIHLA_WEATHER_NONCOMMERCIAL=true` | Yes, the free API. The team states that the deployment is non-commercial. |
+| `production` with `RIHLA_OPEN_METEO_NONCOMMERCIAL=true` | Yes, the free API. The team states that the deployment is non-commercial. |
 | `production` with neither | **No.** `503 weather_unavailable`, and `/api/weather/status` says why. |
 
 **The paid key is kept secret:**
@@ -147,7 +147,7 @@ Errors have the shape `{"error": {"code", "message", "retryable", "field"?, ...}
 |---|---|---|
 | `RIHLA_ENV` | `development` | See above |
 | `RIHLA_OPEN_METEO_API_KEY` | not set | Secret. A paid plan's key; switches to the customer endpoint. |
-| `RIHLA_WEATHER_NONCOMMERCIAL` | not set | `true` allows the free API in production for a non-commercial deployment |
+| `RIHLA_OPEN_METEO_NONCOMMERCIAL` | not set | `true` allows the free API in production for a non-commercial deployment. The same decision covers city search (`app/open_meteo.py`). It replaces the earlier `RIHLA_WEATHER_NONCOMMERCIAL`. |
 | `RIHLA_WEATHER_URL` | free or customer forecast URL | For a self-hosted Open-Meteo or a mock |
 | `RIHLA_WEATHER_TIMEOUT_S` | `6` | 1–30 |
 | `RIHLA_WEATHER_MAX_PER_MINUTE` / `_PER_DAY` | `60` / `5000` | Per process |
@@ -199,7 +199,7 @@ install_weather(app)
 
 **Verify:** `curl "http://localhost:8000/api/weather?latitude=31.95&longitude=35.91"` returns today's forecast for Amman with `"data_status": "LIVE"`.
 
-**For WHAT IF rain:** `app/whatif.py`, on the `backup/rihla-integration-wip` branch, reads the kit's `get_weather` by city. This service can supply the same rain information by coordinates, with no replay cache, through `app/whatif_support/weather_adapter.py`. See `docs/whatif.md`.
+**For WHAT IF rain:** `app/whatif.py`, on `main` since PR #15, reads the kit's `get_weather` by city. This service can supply the same rain information by coordinates, with no replay cache, through `app/whatif_support/weather_adapter.py`. See `docs/whatif.md`.
 
 ### Member 2 (frontend owner): show the forecast
 

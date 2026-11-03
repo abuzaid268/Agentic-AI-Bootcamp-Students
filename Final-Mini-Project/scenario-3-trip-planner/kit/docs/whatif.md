@@ -18,16 +18,22 @@ WHAT IF tries a hypothetical change on the plan on screen, previews it, and keep
 | Scenario validation and arithmetic | `app/whatif_support/scenarios.py` |
 | Result checks: budget, hours, overlaps, travel, unchanged days, no automatic save | `app/whatif_support/checks.py` |
 | Weather adapter for the rain scenario | `app/whatif_support/weather_adapter.py` |
-| Tests | `tests/test_whatif_support.py` (58 passed, plus 1 that runs once `app/whatif.py` is merged) |
+| Tests | `tests/test_whatif_support.py` (58 passed, plus 1 that runs once this branch and `main` are combined) |
 
-## Integration status
+## Integration status (2026-11-03)
 
-**Not end-to-end:**
-- Member 1's simulation (`app/whatif.py`, `tests/test_whatif.py`) is on the `backup/rihla-integration-wip` branch, **not merged** into `main` or into this branch.
-- So these fixtures have **not** been run through the real simulation.
+| What | Where it stands |
+|---|---|
+| Member 1's WHAT IF simulation (`app/whatif.py`, `/api/whatif`, `/api/whatif/apply`) and Member 2's `services/whatIf.js` | **Merged into `main`**: PR #15, `main` at `6df209d` |
+| This part (`app/whatif_support/`, the fixtures) | **On `feature/destinations-flights` only, not yet merged into `main`.** That branch was started from the older `main` (`3d9fd86`), so it doesn't contain `app/whatif.py` yet. |
+| Fixtures run through the real simulation, end to end | **Not done yet.** It needs the two branches combined, plus a `PlanState` built from each fixture (Member 1's test helpers). |
+| `main`'s WHAT IF using this weather adapter | **Not wired.** It's optional: `main` reads the kit's `get_weather`. |
 
 **What *was* verified:**
-- On 2026-11-03, Member 1's real `forecast_rain()` was taken read-only from that branch and run on this adapter's output, with four inputs:
+- On 2026-11-03, the real `forecast_rain()` was run on this adapter's output, with four inputs.
+- It was taken read-only from `backup/rihla-integration-wip`. **`main` now has the same file:** `app/whatif.py` is the same Git blob `f16019b` on both, so the result applies to `main` as it is.
+
+The four inputs and their results:
 
   | Input | Result |
   |---|---|
@@ -36,9 +42,9 @@ WHAT IF tries a hypothetical change on the plan on screen, previews it, and keep
   | Simulated weather | `live: false` |
   | A date past the forecast horizon | `available: false` |
 
-- The same check is in the tests and **skips** until `app/whatif.py` is merged.
+- The same check is in the tests. It **skips** on this branch, which has no `app/whatif.py`, and runs once this branch and `main` are combined.
 
-**The contract used** comes from that branch:
+**The contract used** is the one in `main`'s `app/whatif.py`:
 
 | Scenario | Request |
 |---|---|
@@ -141,7 +147,7 @@ weather = forecast_rain(destination, dates, read_tool)          # Member 1's fun
 
 ### Member 1
 
-1. **After merging `app/whatif.py`:** run `python -m pytest -q tests/test_whatif_support.py`. The skipped compatibility test then runs against the real function.
+1. **After this branch is merged into `main`:** run `python -m pytest -q tests/test_whatif_support.py`. The skipped compatibility test then runs against the real function.
 2. **Optional, to get live rain:**
    - pass `read_tool=make_weather_read_tool(WeatherService(), lat, lon)` to `whatif.preview(...)`;
    - the destination's coordinates come from `/api/destinations` or the research.

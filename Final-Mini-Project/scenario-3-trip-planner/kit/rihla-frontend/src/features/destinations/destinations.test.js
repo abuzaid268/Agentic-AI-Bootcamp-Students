@@ -101,6 +101,12 @@ describe('searchDestinations', () => {
       err.code === 'not_available' && /not available on this server yet/.test(err.message) && err.retryable === false))
   })
 
+  it('says city search is unavailable (no licence decision in production) and does not offer a retry', async () => {
+    const body = { error: { code: 'destinations_unavailable', message: 'City search is not available on this service right now. You can still type the destination yourself.', retryable: false } }
+    await assert.rejects(searchDestinations('Pari', { fetchImpl: fakeFetch(503, body).impl }), (err) => (
+      err.code === 'destinations_unavailable' && err.retryable === false && /type the destination yourself/.test(err.message)))
+  })
+
   it('explains a rate limit and an unreadable error page', async () => {
     await assert.rejects(searchDestinations('Pari', { fetchImpl: fakeFetch(429, null, { json: false }).impl }),
       (err) => /Too many city searches/.test(err.message) && err.retryable === true)
