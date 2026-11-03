@@ -1,7 +1,7 @@
 """WHAT IF scenario fixtures (tests/fixtures/whatif/) and the external-data support in app/whatif_support.
 
-This does NOT test the simulation: that is Member 1's app/whatif.py (backup/rihla-integration-wip branch, not
-merged here). The "revised" results below are hand-made from the fixtures to exercise the checks; they are not
+This does NOT test the simulation: that is Member 1's app/whatif.py (on main since PR #15; not yet merged into
+this branch). The "revised" results below are hand-made from the fixtures to exercise the checks; they are not
 outputs of the Revision Agent. No network: the weather service is mocked with a real recorded Open-Meteo answer.
 """
 import copy
@@ -206,8 +206,8 @@ def test_anything_but_a_real_forecast_is_not_passed_on(answer):
 
 
 def test_member_1s_forecast_rain_reads_the_adapter_when_it_is_merged():
-    """Skipped until app/whatif.py (backup/rihla-integration-wip) is merged into this branch; then it checks the
-    real function. (Run by hand against that branch's file on 2026-11-03: the same four results.)"""
+    """Skipped on this branch alone; runs once it is combined with main, which has app/whatif.py (PR #15), and
+    then checks the real function. (Run on this branch merged with main 6df209d on 2026-11-03: passed.)"""
     whatif = pytest.importorskip("app.whatif")
     wet = {**AMMAN, "daily": {**AMMAN["daily"], "precipitation_sum": [0.0, 6.5, 0.0],
                               "precipitation_probability_max": [5, 85, 10]}}

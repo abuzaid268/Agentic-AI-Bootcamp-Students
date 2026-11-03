@@ -18,7 +18,7 @@ WHAT IF tries a hypothetical change on the plan on screen, previews it, and keep
 | Scenario validation and arithmetic | `app/whatif_support/scenarios.py` |
 | Result checks: budget, hours, overlaps, travel, unchanged days, no automatic save | `app/whatif_support/checks.py` |
 | Weather adapter for the rain scenario | `app/whatif_support/weather_adapter.py` |
-| Tests | `tests/test_whatif_support.py` (58 passed, plus 1 that runs once this branch and `main` are combined) |
+| Tests | `tests/test_whatif_support.py`: on this branch 58 passed and 1 skipped; combined with `main` (`6df209d`) all 59 pass, the compatibility test included (2026-11-03) |
 
 ## Integration status (2026-11-03)
 
@@ -28,6 +28,7 @@ WHAT IF tries a hypothetical change on the plan on screen, previews it, and keep
 | This part (`app/whatif_support/`, the fixtures) | **On `feature/destinations-flights` only, not yet merged into `main`.** That branch was started from the older `main` (`3d9fd86`), so it doesn't contain `app/whatif.py` yet. |
 | Fixtures run through the real simulation, end to end | **Not done yet.** It needs the two branches combined, plus a `PlanState` built from each fixture (Member 1's test helpers). |
 | `main`'s WHAT IF using this weather adapter | **Not wired.** It's optional: `main` reads the kit's `get_weather`. |
+| This branch combined with `main` (a throwaway copy, never pushed) | **Checked 2026-11-03:** no Git conflicts; backend 1400 passed, 10 skipped, 0 failed; frontend 237 passed, lint and build pass; `main`'s current `forecast_rain()` read this adapter as a live forecast with the right rainy dates, and answered `available: false` past 16 days. |
 
 **What *was* verified:**
 - On 2026-11-03, the real `forecast_rain()` was run on this adapter's output, with four inputs.
@@ -150,7 +151,11 @@ weather = forecast_rain(destination, dates, read_tool)          # Member 1's fun
 1. **After this branch is merged into `main`:** run `python -m pytest -q tests/test_whatif_support.py`. The skipped compatibility test then runs against the real function.
 2. **Optional, to get live rain:**
    - pass `read_tool=make_weather_read_tool(WeatherService(), lat, lon)` to `whatif.preview(...)`;
-   - the destination's coordinates come from `/api/destinations` or the research.
+   - the coordinates: `main`'s session has no destination coordinates, but each researched place has `lat` and `lon`
+     (`planning/research.py`). One option is the first place in `state.bundle.places` that has both; without one,
+     keep the default `read_tool`.
+   - Past the 16-day horizon the adapter answers `ok: false`, and `forecast_rain()` then says "No weather data could
+     be read". A clearer message for that case ("too far ahead for a forecast") would be Member 1's choice.
 3. **Optional, to use the fixtures in evals:** load a fixture, build a `PlanState` from its `original_itinerary` and places, call `preview()`, and check `check_against_fixture(fixture, result) == []`.
 
 Building that `PlanState` belongs in Member 1's test helpers, because it depends on `planning/`.

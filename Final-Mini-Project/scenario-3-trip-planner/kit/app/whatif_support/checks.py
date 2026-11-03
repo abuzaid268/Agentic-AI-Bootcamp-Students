@@ -1,7 +1,7 @@
 """Checks a WHAT IF result against a scenario fixture (tests/fixtures/whatif/). Read-only: it never revises,
 approves or saves anything.
 
-A result is what app/whatif.py preview()/apply_proposal() return (backup/rihla-integration-wip branch): a dict with
+A result is what app/whatif.py preview()/apply_proposal() return (on main since PR #15): a dict with
 "status" ("whatif_preview", "whatif_not_feasible", "needs_clarification", ...), the revised "itinerary" in the
 README's save_trip schema, and a "whatif" block. Each check returns a list of violations (strings); [] means it
 passed. Useful for Member 1's tests and evals; nothing here decides what the plan should become.

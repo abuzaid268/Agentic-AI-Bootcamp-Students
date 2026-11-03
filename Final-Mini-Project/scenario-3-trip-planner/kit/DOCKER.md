@@ -67,7 +67,7 @@ Compose reads `kit/.env`, the same file a laptop run uses. Values are passed in 
 `docker-compose.yml` on its own is for local use. For anything public, add the production overlay:
 
 ```powershell
-# TRAVEL_API_KEY must be a private value (kit/.env or the shell); compose refuses to start without one.
+# TRAVEL_API_KEY must be a private value (kit/.env or the shell); compose refuses to start if it is unset or empty.
 docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
 ```
@@ -76,7 +76,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --
 - It sets `RIHLA_ENV=production` literally. No `.env` or shell value can turn it back.
   - Flight search then never shows DEMO or TEST prices.
   - Open-Meteo weather and city search run only after the licence decision (`RIHLA_OPEN_METEO_API_KEY` or `RIHLA_OPEN_METEO_NONCOMMERCIAL=true`).
-- It requires `TRAVEL_API_KEY`.
+- It requires `TRAVEL_API_KEY` to be set and not empty. It can't tell whether the value is private: a literal `dev-key-change-me` is accepted, so check it yourself.
 - It publishes only the web port: 8000 and 8103 stay inside Docker.
 
 It needs Docker Compose 2.24 or newer. It does **not** make Rihla production-ready on its own: see `docs/deployment-readiness.md`, which covers the blockers, among them saved trips that are kept in memory only.

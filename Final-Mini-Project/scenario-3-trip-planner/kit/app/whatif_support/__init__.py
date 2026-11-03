@@ -1,6 +1,6 @@
 """External data and checks for WHAT IF (Member 3). See docs/whatif.md.
 
-Member 1 owns the simulation (app/whatif.py, app/revision.py on the backup/rihla-integration-wip branch). This
+Member 1 owns the simulation (app/whatif.py and app/revision.py, on main since PR #15). This
 package only supplies: scenario validation and arithmetic (scenarios.py), a weather adapter in the shape the
 rain scenario reads (weather_adapter.py), and checks of a result against tests/fixtures/whatif/ (checks.py).
 Nothing here revises, approves or saves a plan.

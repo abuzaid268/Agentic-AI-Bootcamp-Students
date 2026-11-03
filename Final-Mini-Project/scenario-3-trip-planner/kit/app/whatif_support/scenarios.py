@@ -1,6 +1,6 @@
 """WHAT IF scenario requests and their arithmetic, in the shape Member 1's simulation takes.
 
-The contract is app/whatif.py on the backup/rihla-integration-wip branch (not merged into this branch):
+The contract is app/whatif.py (Member 1's, on main since PR #15):
     {"type": "budget_cut", "percent": 1-90 (default 30)}
     {"type": "delay", "hours": 1-12 whole hours (default 3)}
     {"type": "rain", "date": optional trip date}

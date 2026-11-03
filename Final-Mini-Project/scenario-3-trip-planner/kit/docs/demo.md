@@ -29,7 +29,7 @@
    - `/api/flights?origin=TLV&destination=LHR&departure_date=…`: `data_mode: DEMO`, with every offer labelled.
    - The same request with `RIHLA_ENV=production`: `503 flights_unavailable`. Production never shows made-up prices. `/api/destinations` answers `503 destinations_unavailable` too, until the Open-Meteo licence is decided.
    - `/api/weather?latitude=41.01&longitude=28.98`: a real Open-Meteo forecast, `data_status: LIVE`. Call it again: `CACHED`.
-5. **Tests:** `python -m pytest -q` (about 1 minute) and `cd rihla-frontend && npm test`. Mention the one known failure, which is Member 1's.
+5. **Tests:** `python -m pytest -q` (about 1 minute) and `cd rihla-frontend && npm test`. On this branch alone, one test fails (`test_trip_store_integration`): `main` has already fixed it, and combined with `main` all pass.
 6. **Docker:** `docker compose up -d --build --wait`. All three containers become healthy. Then `docker compose down`.
 
 ## 3. Reliable demo paths

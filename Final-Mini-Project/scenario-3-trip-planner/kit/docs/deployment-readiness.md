@@ -56,14 +56,15 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --
 
 **What `docker-compose.prod.yml` does:**
 - It sets `RIHLA_ENV=production` **literally** in the `app` service. It can't be left out, defaulted, or overridden from `.env` or the shell (`environment` takes precedence over `env_file`).
-- It requires `TRAVEL_API_KEY` (`${TRAVEL_API_KEY:?…}`), so the kit's public default key is not used.
+- It requires `TRAVEL_API_KEY` (`${TRAVEL_API_KEY:?…}`), so the kit's default is never filled in silently. Compose checks only that it is set and not empty: it can't compare values, so a literal `dev-key-change-me` is still accepted (checked 2026-11-03). The checklist covers that.
 - It publishes only the web port: `app` (8000) and `travel-api` (8103) stay inside Docker. This uses Compose's `!reset` tag, so it needs Docker Compose 2.24 or newer.
 
 **Checked on 2026-11-03** with `docker compose … config`, printing only `RIHLA_ENV` and the ports:
 
 | Case | Result |
 |---|---|
-| Without `TRAVEL_API_KEY` | Compose refuses: "required variable TRAVEL_API_KEY is missing a value" |
+| Without `TRAVEL_API_KEY`, or with it empty | Compose refuses: "required variable TRAVEL_API_KEY is missing a value" |
+| `TRAVEL_API_KEY=dev-key-change-me` | **Accepted.** Compose can't reject a value, so this stays a checklist item. Port 8103 is not published, which limits the exposure to the Docker network. |
 | With the overlay | `app` has `RIHLA_ENV=production`; `app` and `travel-api` publish no ports; `web` keeps 5173 |
 | `RIHLA_ENV=development` in the shell, with the overlay | Still `production` |
 | The base file alone (local use) | `RIHLA_ENV=development`, with ports 8000, 8103 and 5173 |

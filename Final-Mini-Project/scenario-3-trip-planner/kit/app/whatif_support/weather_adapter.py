@@ -1,6 +1,6 @@
 """Feeds Rihla's weather service (app/weather) to the WHAT IF rain scenario.
 
-app/whatif.py forecast_rain() (backup/rihla-integration-wip branch) asks a read tool for
+app/whatif.py forecast_rain() (Member 1's, on main since PR #15) asks a read tool for
     read_tool("get_weather", {"city", "start_date", "end_date"})
 and reads the kit's get_weather result: {"ok", "kind": "forecast", "mode": "live"|"replay", "source",
 "days": [{"date", "precip_mm", "precip_probability_pct"}]}. Rain counts as confirmed only for kind "forecast" and
@@ -19,7 +19,7 @@ from typing import Any, Callable
 
 from app.weather.service import WeatherError
 
-RAIN_MM, RAIN_PROBABILITY = 1.0, 60  # as app/whatif.py (WIP branch): a day counts as rainy at or above either
+RAIN_MM, RAIN_PROBABILITY = 1.0, 60  # as app/whatif.py: a day counts as rainy at or above either
 
 
 def to_get_weather_result(answer: Any) -> dict:

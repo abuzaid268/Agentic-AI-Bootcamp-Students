@@ -150,7 +150,7 @@ This is from the code, with Member 1 as owner. **The LLM decides; Python calcula
 
 | Area | Status | Notes |
 |---|---|---|
-| Crew planning, verification, revision | **Tested** on `main` (Member 1) | 1211 backend tests pass on this branch (2026-11-03). 1 known failure in `test_trip_store_integration` (Member 1's file, an uncaught `httpx.HTTPStatusError`). |
+| Crew planning, verification, revision | **Tested** on `main` (Member 1) | On this branch alone: 1211 passed, 13 skipped, 1 failed (`test_trip_store_integration`, Member 1's `app/trip_store.py` as it was at `3d9fd86`). Combined with `main` `6df209d` in a throwaway copy: 1400 passed, 10 skipped, **0 failed**, because `main` already fixed `app/trip_store.py` (2026-11-03). |
 | Approval and saving to the Trip Store | **Tested** on `main` | Saving needs `TRAVEL_TRAVELLER_ID`; without it, approval answers 503 |
 | Google sign-in | **Tested** on `main` (Member 2) | `app.auth_app`. Protected: `/api/chat`, `/api/approve`, `/api/trips`. |
 | My Trips, PDF export | **Tested** on `main` (Member 2) | |
