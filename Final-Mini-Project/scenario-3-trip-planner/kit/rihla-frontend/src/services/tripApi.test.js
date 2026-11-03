@@ -118,3 +118,19 @@ describe('createTrip timeout', () => {
     assert.deepEqual(await createTrip(TRIP, 's', 1000), { status: 'pending_approval' })
   })
 })
+
+describe('long trips get more time, never less', async () => {
+  const { tripDays, tripRequestTimeoutMs, TRIP_REQUEST_TIMEOUT_MS } = await import('./tripApi.js')
+  const trip = (departureDate, returnDate) => ({ departureDate, returnDate })
+  it('counts the days inclusively', () => {
+    assert.equal(tripDays(trip('2026-12-01', '2026-12-01')), 1)
+    assert.equal(tripDays(trip('2026-12-01', '2026-12-30')), 30)
+    assert.equal(tripDays(trip('', '')), 1)
+  })
+  it('keeps 5 minutes up to a week, grows after, and stays bounded', () => {
+    assert.equal(tripRequestTimeoutMs(trip('2026-12-01', '2026-12-03')), TRIP_REQUEST_TIMEOUT_MS)
+    assert.equal(tripRequestTimeoutMs(trip('2026-12-01', '2026-12-07')), TRIP_REQUEST_TIMEOUT_MS)
+    assert.ok(tripRequestTimeoutMs(trip('2026-12-01', '2026-12-30')) > TRIP_REQUEST_TIMEOUT_MS)
+    assert.ok(tripRequestTimeoutMs(trip('2026-11-02', '2026-12-31')) <= 20 * 60 * 1000)
+  })
+})

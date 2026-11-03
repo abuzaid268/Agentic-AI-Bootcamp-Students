@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import datetime as dt
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Callable
 
 from .budget_analyst import prepare_candidates
@@ -29,7 +30,10 @@ MIN_SPARE = 0  # complete attractions beyond the trip's minimum (target_range) n
 MAX_PROBES = 60  # travel_time lookups this step may make
 ANCHORS = 2  # well-connected places a candidate's legs are measured against
 SEED_SEARCH = 6  # the first anchors are a measured pair among this many leading candidates
-PARALLEL = 4  # probes at once (one MCP session; each probe is one travel_time call)
+PARALLEL = 6  # probes at once, as the Verifier's prefetch (one MCP session; each probe is one travel_time call)
+# Seconds this step may spend probing. Usually 1-40 s; once a stalled routing service made it take 589 s. Past the
+# budget no new probe starts and an unanswered one counts as not asked, so its place is not set aside on it.
+TIME_BUDGET_S = 45
 
 
 def _dates(bundle: ResearchBundle) -> list[dt.date]:
@@ -50,15 +54,19 @@ def _measured(result) -> bool:
 class _Prober:
     def __init__(self, lookup: Callable[[str, str], dict] | None):
         self.lookup, self.calls, self.cache = lookup, 0, {}
+        self.deadline = time.monotonic() + TIME_BUDGET_S
         self._lock = threading.Lock()
 
+    def remaining(self) -> float:
+        return max(0.0, self.deadline - time.monotonic())
+
     def leg(self, a: ResearchedPlace, b: ResearchedPlace) -> bool | None:
-        """True measured, False not measurable, None not asked (no lookup, or the probe limit was reached)."""
+        """True measured, False not measurable, None not asked (no lookup, the probe limit or the time budget)."""
         key = tuple(sorted((a.place_id, b.place_id)))
         with self._lock:
             if key in self.cache:
                 return self.cache[key]
-            if self.lookup is None or self.calls >= MAX_PROBES:
+            if self.lookup is None or self.calls >= MAX_PROBES or not self.remaining():
                 return None
             self.calls += 1
         try:
@@ -94,8 +102,13 @@ def _routable(places: list[ResearchedPlace], prober: _Prober) -> set[str] | None
         # not asked (probe limit): never set aside on a question that was not asked
         return p.place_id, all(x is None for x in answers)
 
-    with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
-        ok |= {pid for pid, routable in pool.map(answer, [p for p in places if p.place_id not in ok]) if routable}
+    todo = [p for p in places if p.place_id not in ok]
+    pool = ThreadPoolExecutor(max_workers=PARALLEL)
+    futures = {pool.submit(answer, p): p for p in todo}
+    done, _ = wait(futures, timeout=prober.remaining())
+    # A probe still running when the budget ends is not waited for: its place was not judged, so it stays.
+    ok |= {p.place_id for f, p in futures.items() if f not in done or f.result()[1]}
+    pool.shutdown(wait=False, cancel_futures=True)
     return ok
 
 

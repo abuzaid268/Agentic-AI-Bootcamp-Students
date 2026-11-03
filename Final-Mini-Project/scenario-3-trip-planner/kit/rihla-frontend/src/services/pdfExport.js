@@ -221,7 +221,8 @@ export function renderItineraryPdf(model) {
   doc.setFontSize(15)
   doc.text(pdfText(model.title), M, 72)
   y = 112
-  const statusColor = model.status.kind === 'draft' ? COLORS.draft : COLORS.ok
+  // saved with limitations is not verified: never the "ok" colour
+  const statusColor = model.status.kind === 'draft' || model.status.kind === 'limited' ? COLORS.draft : COLORS.ok
   write(model.status.label, { size: 13, style: 'bold', c: statusColor, gap: 2 })
   write(model.status.detail, { size: 9, c: COLORS.muted, gap: 10 })
   for (const [label, value] of model.facts) {

@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { createTrip } from './services/tripApi'
+import { createTrip, LONG_TRIP_DAYS, tripDays } from './services/tripApi'
 import { validateTripResult } from './services/tripResult'
 import { validateTripForm } from './services/tripForm'
 import { useAuth } from './auth/authContext'
 import { AuthRequiredError } from './auth/authApi'
 import NavAuth, { Avatar } from './auth/NavAuth'
+import { DestinationSearch } from './features/destinations'
 
 const LIVE_AI_ENABLED = import.meta.env.VITE_ENABLE_LIVE_AI === 'true'
 
@@ -13,7 +14,6 @@ import {
   ArrowRight,
   CalendarDays,
   Compass,
-  MapPin,
   Menu,
   X,
   Plane,
@@ -257,22 +257,17 @@ export default function App() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <label className="block">
-                  <span className="mb-2 block text-xs font-medium text-white/85">
-                    Destination
-                  </span>
-                  <div className="flex items-center gap-3 rounded-2xl border border-white/30 bg-white/15 px-4 py-4">
-                    <MapPin size={18} className="shrink-0 text-[#b7e6e4]" />
-                    <input
-                      required
-                      maxLength={100}
-                      value={destination}
-                      onChange={(e) => setDestination(e.target.value)}
-                      placeholder="City, Country (e.g. Paris, France)"
-                      className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/55"
-                    />
-                  </div>
-                </label>
+                {/* Worldwide city search (docs/destinations.md): the form still sends plain text; a chosen
+                    suggestion sends its full label ("Paris, Île-de-France Region, France"), never a guess. */}
+                <DestinationSearch
+                  label="Destination"
+                  tone="dark"
+                  placeholder="City, Country (e.g. Paris, France)"
+                  defaultValue={destination}
+                  onTextChange={setDestination}
+                  required
+                />
+
 
                 <div className="grid grid-cols-2 gap-3">
                   {[
@@ -423,8 +418,10 @@ export default function App() {
 
                 {isLoading && (
                   <p role="status" className="text-center text-xs text-white/80">
-                    Researching places, pricing them, building and checking the day plan. This usually takes
-                    one to two minutes; please keep this page open.
+                    Researching places, pricing them, building and checking the day plan.{' '}
+                    {tripDays({ departureDate: startDate, returnDate: endDate }) > LONG_TRIP_DAYS
+                      ? `A ${tripDays({ departureDate: startDate, returnDate: endDate })}-day trip has more to plan and check: this can take several minutes`
+                      : 'This usually takes one to two minutes'}; please keep this page open.
                   </p>
                 )}
 

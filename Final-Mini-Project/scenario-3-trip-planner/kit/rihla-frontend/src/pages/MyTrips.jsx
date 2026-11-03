@@ -24,6 +24,9 @@ import {
 import { FALLBACK_IMAGE, formatDate, formatMoney } from '../services/itineraryAdapter'
 import { getApprovedTrip, listApprovedTrips } from '../services/tripApi'
 import { FILTERS, filterTrips, lostApprovals, mergeTrips, STATUS_LABELS, storeTripResult } from '../services/myTrips'
+
+// Shown in green with a check: verified by Rihla. Trips saved with limitations or as drafts are amber.
+const VERIFIED_STATUSES = ['approved', 'verified_draft']
 import { useAuth } from '../auth/authContext'
 import { AuthRequiredError } from '../auth/authApi'
 import NavAuth from '../auth/NavAuth'
@@ -70,7 +73,7 @@ export default function MyTrips() {
     return () => { cancelled = true }
   }, [reloadKey, loadStore, sessionExpired])
 
-  const trips = mergeTrips(store.trips, local, { storeAvailable: !store.error })
+  const trips = mergeTrips(store.trips, local, { storeAvailable: !store.error, storeLoading: store.loading })
   const filteredTrips = filterTrips(trips, search, activeFilter)
   const lost = store.loading ? [] : lostApprovals(trips, { storeAvailable: !store.error })
   const samplesLoaded = trips.some((t) => t.status === 'sample')
@@ -227,7 +230,8 @@ export default function MyTrips() {
             </p>
             <h2 className="text-3xl font-bold tracking-tight">My Trips</h2>
             <p className="mt-2 text-sm text-[#8297a0]">
-              Approved trips are saved in the Rihla Trip Store · Drafts stay in this browser only.
+              Approved trips, and trips you accepted with limitations, are saved in the Rihla Trip Store · Drafts
+              stay in this browser only.
             </p>
           </div>
 
@@ -278,17 +282,17 @@ export default function MyTrips() {
           </p>
         )}
         {store.loading && (
-          <p role="status" className="mb-6 text-sm text-[#8297a0]">Loading your approved trips…</p>
+          <p role="status" className="mb-6 text-sm text-[#8297a0]">Loading your saved trips…</p>
         )}
         {store.error && (
           <p role="alert" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            Approved trips could not be loaded from the Trip Store: {store.error}{' '}
+            Saved trips could not be loaded from the Trip Store: {store.error}{' '}
             <button type="button" onClick={loadStore} className="font-semibold underline">Try again</button>
           </p>
         )}
         {lost.length > 0 && (
           <p role="alert" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-            <strong>The Trip Store no longer has {lost.length === 1 ? 'one of your approved trips' : `${lost.length} of your approved trips`}.</strong>{' '}
+            <strong>The Trip Store no longer has {lost.length === 1 ? 'one of your saved trips' : `${lost.length} of your saved trips`}.</strong>{' '}
             The simulated store keeps trips in memory, so a restart erased {lost.length === 1 ? 'it' : 'them'}.
             The {lost.length === 1 ? 'card below shows' : 'cards below show'} the copy this browser kept; it is not in
             your account any more.
@@ -340,13 +344,13 @@ export default function MyTrips() {
                     className={`absolute left-5 top-5 flex items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-bold backdrop-blur-xl ${
                       trip.status === 'sample'
                         ? 'border-violet-200 bg-violet-50/90 text-violet-700'
-                        : trip.status !== 'draft'
+                        : VERIFIED_STATUSES.includes(trip.status)
                           ? 'border-emerald-200 bg-emerald-50/90 text-emerald-700'
                           : 'border-amber-200 bg-amber-50/90 text-amber-700'
                     }`}
                   >
                     {trip.status === 'sample' ? <FlaskConical size={14} />
-                      : trip.status !== 'draft' ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                      : VERIFIED_STATUSES.includes(trip.status) ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
                     {STATUS_LABELS[trip.status]}
                   </span>
 
@@ -410,7 +414,7 @@ export default function MyTrips() {
                       onClick={() => downloadPdf(trip)}
                       disabled={busy === trip.id}
                       aria-label={`Download ${trip.destination} itinerary as PDF`}
-                      title={trip.status === 'draft' ? 'Download a draft PDF (not verified)' : 'Download PDF'}
+                      title={VERIFIED_STATUSES.includes(trip.status) ? 'Download PDF' : 'Download PDF (not fully verified)'}
                       className="rounded-xl bg-[#edf5f6] p-3 text-[#245c6a] transition hover:bg-[#dcecee] disabled:opacity-60"
                     >
                       <Download size={18} />
@@ -447,7 +451,7 @@ export default function MyTrips() {
         )}
 
         <div className="mt-10 rounded-2xl border border-[#d7e8ea] bg-[#e6f2f3] p-5 text-sm leading-6 text-[#64848d]">
-          <strong>Where trips are kept:</strong> trips you approve are saved to your account in the Rihla Trip Store
+          <strong>Where trips are kept:</strong> trips you approve, or accept with their limitations, are saved to your account in the Rihla Trip Store
           and come back whenever you sign in. Drafts and sample trips stay in this browser only and are never shown as
           approved; logging out clears them from this browser.
         </div>

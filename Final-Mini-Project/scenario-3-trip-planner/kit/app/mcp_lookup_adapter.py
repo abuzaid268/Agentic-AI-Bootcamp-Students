@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import Any, Callable
 
@@ -55,17 +56,39 @@ def call_lookup(name: str, arguments: dict[str, Any], *, sleep=time.sleep) -> di
     raise MCPLookupError(f"MCP lookup '{name}' could not be completed.")
 
 
+class _RequestMemo:
+    """The successful answers of one planning request's lookups, by question. A request asks the same questions
+    several times (the Planner measures a leg, the Verifier checks it, a targeted revision verifies again): each
+    is now asked once, and the later askers get that same real tool result, made during this request. A failure
+    (an exception) is never kept, so it is asked again exactly as before. The lookups are created per request
+    (app/orchestrator.py, app/revision.py), so nothing outlives the request or passes between travellers."""
+
+    def __init__(self):
+        self._answers: dict[tuple, dict] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: tuple, ask: Callable[[], dict]) -> dict:
+        with self._lock:
+            if key in self._answers:
+                return dict(self._answers[key])
+        result = ask()
+        with self._lock:
+            self._answers[key] = dict(result)
+        return result
+
+
 def create_hours_lookup(city: str) -> Callable[[str], dict]:
-    """Create a city-bound opening-hours lookup."""
+    """Create a city-bound opening-hours lookup (each place asked once per request: _RequestMemo)."""
+    memo = _RequestMemo()
 
     def hours_lookup(place_name: str) -> dict:
-        return call_lookup(
+        return memo.get((place_name,), lambda: call_lookup(
             "get_opening_hours",
             {
                 "place_name": place_name,
                 "city": city,
             },
-        )
+        ))
 
     return hours_lookup
 
@@ -95,10 +118,12 @@ def create_travel_lookup(
     returned: profile "driving", its own minutes, distance and citation, plus the walk's measured minutes
     (walk_duration_min). Nothing is estimated: a failed ride lookup returns the measured walk unchanged, which
     the walking checks then report. There is no public-transport data, so a transit time is never given.
-    The Planner and the Verifier share this lookup, so both see the same legs."""
+    The Planner and the Verifier share this lookup, so both see the same legs; each leg is asked once per request
+    (_RequestMemo)."""
+    memo = _RequestMemo()
 
     def ask(from_place: str, to_place: str, how: str) -> dict:
-        return call_lookup(
+        return memo.get((from_place, to_place, how), lambda: call_lookup(
             "travel_time",
             {
                 "from_place": from_place,
@@ -106,7 +131,7 @@ def create_travel_lookup(
                 "city": city,
                 "mode": how,
             },
-        )
+        ))
 
     def travel_lookup(from_place: str, to_place: str) -> dict:
         result = ask(from_place, to_place, mode)

@@ -1,6 +1,6 @@
-// The backend refuses longer trips (app/schemas.py MAX_TRIP_DAYS = 21): stop them here, before the request,
-// instead of after the traveller has waited for a 422.
-export const MAX_TRIP_DAYS = 21
+// The backend refuses longer trips (app/schemas.py MAX_TRIP_DAYS = 30, with the measurements behind it): stop them
+// here, before the request, instead of after the traveller has waited for a 422.
+export const MAX_TRIP_DAYS = 30
 export const MAX_TRAVELLERS = 20
 
 function isoToday(now) {
@@ -32,7 +32,10 @@ export function validateTripForm(trip, now = new Date()) {
     if (trip.departureDate < isoToday(now)) errors.push('The departure date is in the past.')
     if (end < start) errors.push('The return date must be on or after the departure date.')
     const days = Math.round((end - start) / 86400000) + 1
-    if (days > MAX_TRIP_DAYS) errors.push(`Trips can be at most ${MAX_TRIP_DAYS} days long.`)
+    if (days > MAX_TRIP_DAYS) {
+      errors.push(`Trips can be at most ${MAX_TRIP_DAYS} days long (this one is ${days}): for a longer stay the `
+        + 'travel sources list fewer sights than days, so the plan would have empty days. Plan it as two trips.')
+    }
   }
 
   const travellers = Number(trip.travellers)

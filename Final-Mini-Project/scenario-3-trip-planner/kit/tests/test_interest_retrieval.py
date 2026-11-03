@@ -81,7 +81,9 @@ def test_recorded_pages_are_tagged_by_the_current_rules():
 
 # ------------------------------------------------------------------ research size
 def test_a_longer_trip_researches_more_places():
-    assert attraction_limit(2) == attraction_limit(6) == attraction_limit(14) == 30  # the widest choice, then filtered
+    # a week or less: the widest choice of 30, then filtered; longer: 4 per day, up to the tool's 50
+    assert attraction_limit(2) == attraction_limit(7) == 30
+    assert attraction_limit(10) == 40 and attraction_limit(14) == attraction_limit(30) == attraction_limit(60) == 50
 
 
 # ------------------------------------------------------------------ the structured trip form
@@ -120,7 +122,7 @@ def test_free_text_preferences_still_go_to_the_coordinator_but_the_form_fields_w
 
 @pytest.mark.parametrize("change, message", [
     ({"end_date": "2026-11-01"}, "before the departure date"),
-    ({"end_date": "2026-12-30"}, "up to 21 days"),
+    ({"end_date": "2026-12-02"}, "up to 30 days"),  # 31 days from 2026-11-02
     ({"travellers": 0}, "greater than or equal to 1"),
 ])
 def test_invalid_form_values_are_refused_before_any_work(change, message):

@@ -79,12 +79,17 @@ describe('trip form limits match the backend', () => {
   const ok = { destination: 'Amman', departureDate: '2026-11-02', returnDate: '2026-11-22', travellers: '2', budget: '900' }
   const NOW = new Date('2026-10-30T12:00:00Z')
 
-  it('accepts 21 days, the backend maximum (app/schemas.py MAX_TRIP_DAYS)', () => {
+  it('accepts 21, 22 and 30 days (30: the backend maximum, app/schemas.py MAX_TRIP_DAYS)', () => {
     assert.deepEqual(validateTripForm(ok, NOW), [])
+    for (const returnDate of ['2026-11-23', '2026-12-01']) {
+      assert.deepEqual(validateTripForm({ ...ok, returnDate }, NOW), [], returnDate)
+    }
   })
 
-  it('refuses 22 days before any request is sent', () => {
-    assert.match(validateTripForm({ ...ok, returnDate: '2026-11-23' }, NOW).join(' '), /at most 21 days/)
+  it('refuses 31 days before any request is sent, saying the limit and why', () => {
+    const message = validateTripForm({ ...ok, returnDate: '2026-12-02' }, NOW).join(' ')
+    assert.match(message, /at most 30 days long \(this one is 31\)/)
+    assert.match(message, /two trips/)
   })
 })
 

@@ -7,8 +7,20 @@ from typing import Any
 from app.contract import record_agent_tools
 from planning.research import ResearchBundle
 from researcher.mcp_client import stage
+from planning.verification import DEFAULT_MAX_LOOKUPS
 from planning.verifier_agent import VerifierAgentError, python_explanation, run_verifier_agent
 from planning.revision_agent import run_targeted_revision
+
+
+LOOKUPS_PER_DAY = 8  # a day's places (opening hours) and the legs between them, with room to spare
+
+
+def lookup_budget(itinerary: Any) -> int:
+    """How many fresh lookups the verifier may make: its default (60, enough for about a week), or 8 per day for a
+    longer trip. A long trip is checked as thoroughly as a short one: past the budget, a fact would be left
+    unchecked (UNKNOWN, never assumed), so the budget grows with the trip instead."""
+    days = len(getattr(itinerary, "days", None) or [])
+    return max(DEFAULT_MAX_LOOKUPS, LOOKUPS_PER_DAY * days)
 
 
 def run_verification_pipeline(
@@ -41,6 +53,9 @@ def run_verification_pipeline(
                 planner_report=planner_report,
                 hours_lookup=hours_lookup,
                 travel_lookup=travel_lookup,
+                # only a long trip needs more than the verifier's own default
+                **({"max_lookups": lookup_budget(itinerary)}
+                   if lookup_budget(itinerary) > DEFAULT_MAX_LOOKUPS else {}),
             )
     except VerifierAgentError as error:
         # The verdict is Python's and survives an LLM failure: only the agent's

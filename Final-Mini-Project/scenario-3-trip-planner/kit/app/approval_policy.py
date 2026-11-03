@@ -87,16 +87,20 @@ def _names(itinerary: dict) -> dict[str, str]:
 
 
 def acceptance(eligibility: dict | None, itinerary: Any, verification: dict | None,
-               budget: dict | None) -> dict[str, Any] | None:
+               budget: dict | None, place_names: dict[str, str] | None = None) -> dict[str, Any] | None:
     """How the traveller may save a plan the approval policy did not make eligible, or None (eligible, or no valid
     plan). `verification` is orchestrator.verification_summary(), `budget` orchestrator.budget_summary(): what is
-    listed here comes from them only. Unknown prices stay unknown: the known subtotal is shown apart from them."""
+    listed here comes from them only. Unknown prices stay unknown: the known subtotal is shown apart from them.
+    `place_names` (place_id -> name, from the session's research) names the places findings refer to: the itinerary
+    sent to the Trip Store carries no place_id."""
     if eligibility is None or eligibility.get("eligible") or not _valid_structure(itinerary):
         return None
     status = (verification or {}).get("status")
     mode = "unverified_draft" if status == "FAIL" or verification is None else "accepted_with_limitations"
-    names = _names(itinerary)
+    names = {**(place_names or {}), **_names(itinerary)}
     findings = (verification or {}).get("findings") or []
+    b = budget or {}
+    unpriced = [str(n) for n in b.get("unknown_price_items") or []]
 
     def where(f: dict) -> str:
         bits = [names.get(f.get("place_id"), f.get("place_id")) if f.get("place_id") else None, f.get("date")]
@@ -106,7 +110,7 @@ def acceptance(eligibility: dict | None, itinerary: Any, verification: dict | No
                                   if f.get("state") == "confirmed_problem" and f.get("explanation")))
     unconfirmed: dict[str, list[str]] = {}
     for f in findings:
-        if f.get("state") == "unverifiable":
+        if f.get("state") == "unverifiable" and not (f.get("check") == "costs" and unpriced):  # listed once, below
             places = unconfirmed.setdefault(_UNCONFIRMED.get(f.get("check"), "Some facts could not be confirmed"), [])
             if where(f) and where(f) not in places:
                 places.append(where(f))
@@ -115,8 +119,6 @@ def acceptance(eligibility: dict | None, itinerary: Any, verification: dict | No
     if verification is None:
         limitations.append("This plan was not verified: none of its facts were checked.")
 
-    b = budget or {}
-    unpriced = [str(n) for n in b.get("unknown_price_items") or []]
     costs = {"currency": b.get("currency") or itinerary.get("currency"),
              "known_subtotal": b.get("planned_known_total"), "budget_total": b.get("budget_total"),
              "unpriced_items": unpriced, "not_included": list(b.get("not_included") or []),

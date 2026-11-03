@@ -15,7 +15,9 @@ from app.orchestrator import orchestrate_trip
 from app.trip_store import TripStoreError, get_trip_from_store, list_trips_from_store, save_trip_to_store, trip_title
 from app.diagnostics import classify_error, safe_traceback
 from app.contract import build_citations, build_reply, build_usage, pending_summary, usage_recording
+from app.airports import install_airports
 from app.auth import current_user, install_auth, traveller_id_for_request
+from app.destinations import install_destinations
 from app.approval_policy import ACCEPTANCE_MODES, APPROVABLE_STATUSES, acceptance, approval_eligibility
 from app.traveller_memory import (describe_preferences, lasting_preferences, remember, session_preferences,
                                   traveller_id_from)
@@ -25,6 +27,9 @@ from researcher.mcp_client import recording
 app = FastAPI(title="Rihla Trip Planner")
 # Google sign-in (app/auth): the signed-in user's identity, RIHLA_AUTH_REQUIRED, CSRF and session ownership.
 install_auth(app)
+# Read-only search boxes (docs/destinations.md, docs/airports.md): GET /api/destinations, GET /api/airports.
+install_destinations(app)
+install_airports(app)
 
 # uvicorn's own error logger: printed in the backend console.
 logger = logging.getLogger("uvicorn.error")
@@ -216,12 +221,15 @@ def _plan_response(session_id: str, session: dict, result: dict, *, traveller_id
     # A plan the policy did not make eligible can still be kept by the traveller, as their own acknowledged
     # decision (POST /api/accept): never an approval, and saved with its status and every limitation.
     pending_acceptance = None
+    state = session.get("plan_state")  # the research behind this plan: names for the places findings refer to
+    place_names = {p.place_id: p.name for p in getattr(getattr(state, "bundle", None), "places", None) or []}
     offer = None if preview or itinerary is None or pending_action is not None else acceptance(
-        eligibility, itinerary, result.get("verification"), result.get("budget"))
+        eligibility, itinerary, result.get("verification"), result.get("budget"), place_names)
     if offer is not None:
-        saved = {**deepcopy(itinerary), "rihla_save": {k: deepcopy(offer[k]) for k in (
-            "mode", "label", "verification_status", "verified", "evidence_basis", "limitations",
-            "confirmed_problems", "costs")}}
+        record = {k: deepcopy(offer[k]) for k in ("mode", "label", "verification_status", "verified",
+                                                  "evidence_basis", "limitations", "confirmed_problems", "costs")}
+        # the plan version the traveller accepted (a revised plan has a new one)
+        saved = {**deepcopy(itinerary), "rihla_save": {**record, "plan_version": result.get("plan_version")}}
         pending_acceptance = {**offer, "acceptance_id": str(uuid4()), "type": "save_trip_unverified",
                               "itinerary_hash": _itinerary_hash(saved),
                               "payload": {"traveller_id": traveller_id or _fallback_traveller(),
@@ -252,9 +260,14 @@ def _plan_response(session_id: str, session: dict, result: dict, *, traveller_id
         approval_info = {k: eligibility[k] for k in ("eligible", "verification_status", "evidence_basis", "basis",
                                                 "verified", "disclosure", "reason")}
 
+    message = result.get("message")
+    if offer is not None and isinstance(message, str):
+        # Approval stays refused; the traveller is told the plan can still be saved, as their own decision.
+        message = message.replace("No approval is allowed.", "It cannot be approved as verified, but you can save "
+                                                              "it with its limitations.")
     reply = build_reply(
         status=status,
-        message=None if status == "preferences_saved" else result.get("message"),
+        message=None if status == "preferences_saved" else message,
         itinerary=itinerary,
         summary=summary,
         verification=verification,
@@ -284,7 +297,7 @@ def _plan_response(session_id: str, session: dict, result: dict, *, traveller_id
         citations=build_citations(itinerary),
         tool_calls=tool_calls,
         usage=usage,
-        message=result.get("message"),
+        message=message,
         coverage=deepcopy(coverage),
         plan_quality=deepcopy(plan_quality) if itinerary is not None else None,
         performance=deepcopy(result.get("performance")) if isinstance(result.get("performance"), dict) else None,

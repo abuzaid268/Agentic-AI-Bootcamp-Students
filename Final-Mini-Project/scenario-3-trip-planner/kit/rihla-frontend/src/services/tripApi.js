@@ -56,6 +56,21 @@ const REVISION = {
 // Measured full runs take 75-85 s (sequential LLM stages); stop waiting well
 // after that so a hung backend or provider never leaves the page spinning forever.
 export const TRIP_REQUEST_TIMEOUT_MS = 5 * 60 * 1000
+// Longer trips take longer (more places to research, plan and verify): the limit grows with the trip's days.
+export const LONG_TRIP_DAYS = 7
+const EXTRA_MS_PER_DAY = 20 * 1000
+const MAX_TRIP_REQUEST_TIMEOUT_MS = 20 * 60 * 1000
+
+export function tripDays(trip) {
+  const start = Date.parse(`${trip?.departureDate}T00:00:00Z`)
+  const end = Date.parse(`${trip?.returnDate}T00:00:00Z`)
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 86400000) + 1 : 1
+}
+
+export function tripRequestTimeoutMs(trip) {
+  const extra = Math.max(0, tripDays(trip) - LONG_TRIP_DAYS) * EXTRA_MS_PER_DAY
+  return Math.min(MAX_TRIP_REQUEST_TIMEOUT_MS, TRIP_REQUEST_TIMEOUT_MS + extra)
+}
 
 // POST /api/chat with a time limit. Throws AuthRequiredError for a 401 (the page asks to log in and retries),
 // otherwise an Error whose message is safe to show and says what did not happen.
@@ -121,7 +136,7 @@ async function postChat(body, timeoutMs, { outcome, timedOut, login }) {
   }
 }
 
-export async function createTrip(trip, sessionId, timeoutMs = TRIP_REQUEST_TIMEOUT_MS) {
+export async function createTrip(trip, sessionId, timeoutMs = tripRequestTimeoutMs(trip)) {
   return postChat(
     { session_id: sessionId, message: buildTripMessage(trip), trip: buildTripForm(trip) },
     timeoutMs,
