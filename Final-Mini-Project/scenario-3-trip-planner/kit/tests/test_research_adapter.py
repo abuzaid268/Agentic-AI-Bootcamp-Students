@@ -153,7 +153,7 @@ def test_amman_frontend_labels_reach_the_real_attractions(travel_api_caller):
     restaurants = [p.name for p in bundle.places if p.category == "restaurant"]
 
     first = travel_api_caller.calls[0]
-    assert first == ("find_attractions", {"city": "Amman", "interest": "history,art,museum,markets", "limit": 30})  # 8 days
+    assert first == ("find_attractions", {"city": "Amman", "interest": "history,art,museum,markets", "limit": 32})  # 8 days: 4 per day
     assert {"Amman Citadel", "Roman Theater", "The Jordan Museum", "Darat al Funun"} <= set(attractions)
     # Rainbow Street used to count as shopping only because "street" was a market keyword; its listing describes
     # a walking area with cafes. The recorded Amman page has no shopping listing, so shopping is not served.

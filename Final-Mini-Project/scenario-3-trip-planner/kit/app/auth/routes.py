@@ -56,8 +56,13 @@ def _clear_cookie(response: JSONResponse, request: Request, s: AuthSettings) -> 
 
 @router.get("/config")
 def auth_config():
+    """What the login modal needs: whether sign-in is set up here, and the Firebase web config for Google's popup
+    (public by design: it identifies the project and grants nothing). `missing` names what the server still needs,
+    never a value: the secret and every key value stay on the server."""
     s = settings()
-    return JSONResponse({"required": s.required, "configured": s.configured, "provider": "google"},
+    return JSONResponse({"required": s.required, "configured": s.configured, "provider": "google",
+                         "web": s.web_config(), "missing": s.missing() + [m for m in s.missing_web()
+                                                                           if m not in s.missing()]},
                         headers=NO_STORE)
 
 

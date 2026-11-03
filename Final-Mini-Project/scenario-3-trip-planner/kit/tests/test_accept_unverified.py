@@ -61,6 +61,18 @@ def test_unknown_facts_are_listed_and_prices_are_never_counted():
     assert "Opening hours could not be confirmed: Rainbow Street, 2026-11-05" in text
     assert "Travel times could not be measured" in text
     assert "Price unavailable for 1 planned item(s): Rainbow Street" in text and "cannot be guaranteed" in text
+    assert "Some prices are unavailable" not in text  # the unpriced items are listed once, by name
+
+
+def test_findings_name_places_from_the_research_not_by_id():
+    itinerary = deepcopy(AMMAN)
+    for a in itinerary["days"][0]["activities"]:
+        a.pop("place_id")  # as the Trip Store payload: no place_id
+    report = SimpleNamespace(status="UNKNOWN", evidence_basis="recorded", verified=False, checks=[])
+    offer = acceptance(approval_eligibility(report, True), itinerary, unverified()["verification"], BUDGET,
+                       {"wv-amman-rainbow": "Rainbow Street"})
+    text = " ".join(offer["limitations"])
+    assert "Opening hours could not be confirmed: Rainbow Street, 2026-11-05" in text and "wv-amman" not in text
     assert offer["costs"] == {"currency": "USD", "known_subtotal": "30.00", "budget_total": "500.00",
                               "unpriced_items": ["Rainbow Street"], "not_included": ["accommodation", "flights"],
                               "budget_guaranteed": False}
@@ -85,6 +97,11 @@ def test_unknown_plan_has_no_approval_but_can_be_accepted_saved_listed_and_opene
     assert data["pending_action"] is None  # the verified approval path is unchanged: no action for UNKNOWN
     offer = data["pending_acceptance"]
     assert offer["mode"] == "accepted_with_limitations" and "payload" not in offer
+    unsure = unverified()
+    unsure["message"] = "The itinerary could not be fully verified. No approval is allowed."
+    said = plan(alice, "s-a2", unsure)
+    assert "cannot be approved as verified, but you can save it with its limitations" in said["message"]
+    assert "cannot be approved yet" in said["reply"] and said["pending_action"] is None
     assert alice.post("/api/approve", headers=ORIGIN, json={"session_id": "s-a", "action_id": offer["acceptance_id"],
                                                             "approved": True}).json()["status"] == "no_pending_action"
 

@@ -3,7 +3,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-MAX_TRIP_DAYS = 21  # longer trips are refused with a clear message, not planned badly
+# Longer trips are refused with a clear message, not planned badly. Measured on live Istanbul data (the city with the
+# most listings): 30 days took 255 s with sightseeing on all 30 days; 60 days took 202 s but only 49 of 60 days had
+# any, because the sources list about 50 places per city (find_attractions returns at most 50). Past 30 days a plan
+# would have empty days, so the limit is 30. Keep rihla-frontend/src/services/tripForm.js in step.
+MAX_TRIP_DAYS = 30
+TOO_LONG = (f"Rihla plans trips of up to {MAX_TRIP_DAYS} days: for a longer stay the travel sources list fewer sights "
+            "than days, so the plan would have empty days. Plan a longer journey as two trips.")
 
 
 class TripForm(BaseModel):
@@ -25,7 +31,7 @@ class TripForm(BaseModel):
         if self.end_date < self.start_date:
             raise ValueError("The return date is before the departure date.")
         if (self.end_date - self.start_date).days + 1 > MAX_TRIP_DAYS:
-            raise ValueError(f"Rihla plans trips of up to {MAX_TRIP_DAYS} days. Please choose shorter dates.")
+            raise ValueError(TOO_LONG)
         return self
 
 

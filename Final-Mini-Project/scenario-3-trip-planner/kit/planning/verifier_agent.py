@@ -759,6 +759,11 @@ def explain_verification(report: VerificationReport, llm: BaseLLM | str) -> Veri
         summary = ("Nothing needs fixing." if not report.warnings else
                    f"Nothing needs fixing; {len(report.warnings)} warning(s) to be aware of.")
         return VerifierAgentReport(decided_by="python", prioritized=_python_ranking(ctx), summary=summary, **common)
+    if len(ctx.must_rank) > MAX_AGENT_RANKED:
+        # A long trip has more findings than one ranked answer holds (a 22-day plan had 55): the agent's answer then
+        # failed its guardrail on every retry, for minutes, and Python's ranking was used anyway. It is used at once.
+        return VerifierAgentReport(decided_by="python", prioritized=_python_ranking(ctx), summary=TOO_MANY_SUMMARY,
+                                   **common)
     decision, tool, result = decide_with_crew(ctx, llm)
     messages = result.tasks_output[0].messages if result.tasks_output else []
     usage = result.token_usage
@@ -772,6 +777,9 @@ def explain_verification(report: VerificationReport, llm: BaseLLM | str) -> Veri
 
 AGENT_FAILED_SUMMARY = ("The Verifier agent gave no valid explanation, so Python's own ranking of its findings is "
                         "shown. The verdict is Python's either way.")
+MAX_AGENT_RANKED = 50  # findings the agent ranks in one answer; more (long trips) are ranked by Python
+TOO_MANY_SUMMARY = ("This plan has more findings than the Verifier agent ranks in one answer, so Python's own ranking "
+                    "is shown. The verdict is Python's either way.")
 
 
 def python_explanation(error: VerifierAgentError) -> VerifierAgentReport:

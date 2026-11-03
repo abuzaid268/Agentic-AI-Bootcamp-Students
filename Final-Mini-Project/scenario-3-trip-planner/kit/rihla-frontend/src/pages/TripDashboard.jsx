@@ -4,7 +4,7 @@ import {
 } from '../services/tripResult'
 import { getSavedTrip, isTripSaved, markApproved, saveTrip } from '../services/savedTrips'
 import { approveTrip, rejectTrip, reviseTrip } from '../services/tripApi'
-import { approvalOptions } from '../services/approval'
+import { ACCEPTANCE_LABELS, acceptanceOptions, approvalOptions, sendAcceptance } from '../services/approval'
 import { AuthRequiredError } from '../auth/authApi'
 import { useAuth } from '../auth/authContext'
 import { applyRevision, revisionBlockedReason } from '../services/tripRevision'
@@ -29,6 +29,7 @@ const BADGE_STYLES = {
 }
 
 function Header() {
+  const { user } = useAuth() // signed in: their name, not a "Log In" link
   return (
     <header className="border-b border-[#dbe8eb] bg-white/85 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
@@ -44,7 +45,9 @@ function Header() {
           <a href="/trip" className="text-[#256a77]">My Trip</a>
           <a href="#assistant" className="hover:text-[#256a77]">AI Assistant</a>
           <a href="/my-trips" className="hover:text-[#256a77]">My Trips</a>
-          <a href="/login" className="hover:text-[#256a77]">Log In</a>
+          {user
+            ? <a href="/profile" className="hover:text-[#256a77]">{user.name || user.email || 'My Profile'}</a>
+            : <a href="/login" className="hover:text-[#256a77]">Log In</a>}
         </nav>
 
         <span className="rounded-full bg-[#e8f6f5] px-4 py-2 text-xs font-semibold text-[#327783]">
@@ -119,6 +122,8 @@ export default function TripDashboard() {
   // places actually scheduled, and the plan's limitations. Absent for the sample trip.
   const summary = isReal && aiResult.summary ? aiResult.summary : null
   const coverageByInterest = Object.fromEntries((summary?.interest_coverage || []).map((c) => [c.interest, c]))
+  const limitations = summary?.limitations || []
+  const [detailsOpen, setDetailsOpen] = useState(false) // the status strip's full text: collapsed by default
   const budget = summarizeBudget(view.budgetTotal, view.estimatedTotal, view.unknownCostCount)
   const money = (value) => formatMoney(value, view.currency)
   const totalExperiences = view.days.reduce((total, day) => total + day.activities.length, 0)
@@ -200,6 +205,58 @@ export default function TripDashboard() {
     }
   }
 
+  // A plan that is not eligible for approval (some fact could not be confirmed, or the verifier found a problem)
+  // can still be kept, as the traveller's own decision: a confirmation lists what is missing, an explicit
+  // acknowledgment is required, and POST /api/accept saves it with that status. It is never shown as approved.
+  const accept = isReal && !sampleEntry ? acceptanceOptions(aiResult) : { canAccept: false }
+  const canAccept = accept.canAccept && !approval
+  const [acceptOpen, setAcceptOpen] = useState(false)
+  const [acknowledged, setAcknowledged] = useState(false)
+
+  const openAccept = () => {
+    if (!canAccept || approving) return
+    setApproveError('')
+    setApproveNote('')
+    setAcknowledged(false)
+    setAcceptOpen(true)
+  }
+
+  const cancelAccept = () => {
+    if (approving) return
+    setAcceptOpen(false)
+    setAcknowledged(false)
+    setApproveNote('Nothing was saved. You can accept this itinerary later, or ask for a change.')
+  }
+
+  const handleAccept = async () => {
+    if (!canAccept || !acknowledged || approving) return // one save at a time, only after the acknowledgment
+    setApproving(true)
+    setApproveError('')
+    try {
+      const out = await sendAcceptance({ sessionId: tripId, acceptanceId: accept.acceptanceId, mode: accept.mode,
+        acknowledged: true })
+      const local = { trip_id: out.tripId, approvedAt: new Date().toISOString(), mode: out.mode }
+      try {
+        markApproved(aiResult, trip, { trip_id: out.tripId, mode: out.mode })
+        setSaved(true)
+      } catch {
+        // the backend saved it; only the local copy failed (storage blocked): My Trips still lists it
+      }
+      setApproval(local)
+      setAcceptOpen(false)
+      setApproveNote(`${out.alreadySaved ? 'This trip was already saved' : 'Saved to My Trips'} as `
+        + `"${ACCEPTANCE_LABELS[out.mode]}". Trip ID: ${out.tripId}.`)
+    } catch (err) {
+      if (err instanceof AuthRequiredError) { // the session ended: log in again, then confirm once more
+        sessionExpired(() => setAcceptOpen(true))
+        return
+      }
+      setApproveError(err instanceof Error ? err.message : 'The trip could not be saved. Nothing was saved.')
+    } finally {
+      setApproving(false)
+    }
+  }
+
   const [pdfError, setPdfError] = useState('')
   const handlePdf = async () => {
     setPdfError('')
@@ -213,7 +270,8 @@ export default function TripDashboard() {
   }
   // Change requests: sent to the backend, which revises the plan it keeps for this session and verifies it
   // again. Only a revised itinerary replaces the one on screen; anything else leaves it as it is.
-  const revisionBlocked = revisionBlockedReason(aiResult, { sample: isSample || sampleEntry, approved: Boolean(approval) })
+  const revisionBlocked = revisionBlockedReason(aiResult, { sample: isSample || sampleEntry,
+    approved: Boolean(approval) && !approval.mode, saved: Boolean(approval?.mode) })
   const [message, setMessage] = useState('')
   const [revising, setRevising] = useState(false)
   const [messages, setMessages] = useState(() => [
@@ -255,6 +313,7 @@ export default function TripDashboard() {
     navigate('/trip', { replace: true, state: request })
     setApproval(null)
     setRejected(false)
+    setAcceptOpen(false)
     setApproveNote('')
     setApproveError('')
     setPdfError('')
@@ -421,28 +480,39 @@ export default function TripDashboard() {
           </span>
         </div>
 
-        {/* STATUS AND WARNINGS FROM THE BACKEND */}
+        {/* STATUS AND LIMITATIONS FROM THE BACKEND: one line, the full text one click away (nothing is left out) */}
         {isReal && (
-          <section
-            role="status"
-            className={`mb-6 rounded-[22px] border p-5 text-sm leading-6 ${BADGE_STYLES[verification.level]}`}
+          <details
+            open={detailsOpen}
+            onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
+            className={`mb-6 rounded-[18px] border text-sm ${BADGE_STYLES[verification.level]}`}
           >
-            <p className="font-semibold">{verification.label}</p>
-            <p className="mt-1">{verification.detail}</p>
-          </section>
-        )}
-
-        {summary?.limitations?.length > 0 && (
-          <section className="mb-6 rounded-[22px] border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-800">
-            <p className="flex items-center gap-2 font-semibold">
-              <TriangleAlert size={16} /> What this plan does not cover
-            </p>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              {summary.limitations.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </section>
+            <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 px-4 py-3">
+              <BadgeIcon size={15} aria-hidden="true" />
+              <span role="status" className="font-semibold">{verification.label}</span>
+              {limitations.length > 0 && (
+                <span>· {limitations.length} {limitations.length === 1 ? 'limitation' : 'limitations'}</span>
+              )}
+              <span className="ml-auto text-xs font-semibold underline underline-offset-2">
+                {detailsOpen ? 'Hide details' : 'Show details'}
+              </span>
+            </summary>
+            <div className="border-t border-current/20 px-4 pb-4 pt-3 leading-6">
+              <p>{verification.detail}</p>
+              {limitations.length > 0 && (
+                <>
+                  <p className="mt-3 flex items-center gap-2 font-semibold">
+                    <TriangleAlert size={15} aria-hidden="true" /> What this plan does not cover
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {limitations.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </details>
         )}
 
         {coverage && uncoveredDates.length > 0 && (
@@ -516,8 +586,8 @@ export default function TripDashboard() {
           )}
           {isReal && !saveError && !approval && (
             <p className="w-full text-xs text-[#8297a0]">
-              A draft stays in this browser on this device only. Approving a verified trip saves it to your trips
-              in the Rihla Trip Store.
+              A draft stays in this browser on this device only. Approving a verified trip, or accepting one with
+              its limitations, saves it to your trips in the Rihla Trip Store.
             </p>
           )}
         </div>
@@ -816,19 +886,25 @@ export default function TripDashboard() {
             <section className="rounded-[28px] border border-[#e0ebed] bg-white p-6 shadow-sm">
               <h2 className="mb-2 text-lg font-bold">Ready for your adventure?</h2>
               <p className="mb-5 text-sm leading-6 text-[#8297a0]">
-                {approval
-                  ? 'You approved this itinerary and it is saved in your trips.'
-                  : rejected
-                    ? 'You rejected this itinerary. Nothing was saved. Ask for a change, or plan another trip.'
-                    : sampleEntry || verification.level === 'sample'
-                      ? 'A sample trip cannot be approved.'
-                      : options.canApprove && options.basis === 'live'
-                        ? 'This itinerary passed verification on live data. Approve it to save it to My Trips. Rihla never books or pays for anything.'
-                        : options.canApprove
-                          ? 'Every check passed, on recorded data. Approve it to save it to My Trips, or reject it. Rihla never books or pays for anything.'
-                          : verification.level === 'verified'
-                            ? 'This itinerary passed verification, but there is no approval waiting for it. Plan the trip again to approve it.'
-                            : approvalBlockedReason(aiResult)}
+                {approval?.mode
+                  ? `Saved in My Trips as "${ACCEPTANCE_LABELS[approval.mode] || 'Saved · Not Fully Verified'}": you accepted it with its limitations. It is not fully verified.`
+                  : approval
+                    ? 'You approved this itinerary and it is saved in your trips.'
+                    : rejected
+                      ? 'You rejected this itinerary. Nothing was saved. Ask for a change, or plan another trip.'
+                      : sampleEntry || verification.level === 'sample'
+                        ? 'A sample trip cannot be approved.'
+                        : options.canApprove && options.basis === 'live'
+                          ? 'This itinerary passed verification on live data. Approve it to save it to My Trips. Rihla never books or pays for anything.'
+                          : options.canApprove
+                            ? 'Every check passed, on recorded data. Approve it to save it to My Trips, or reject it. Rihla never books or pays for anything.'
+                            : canAccept && accept.mode === 'unverified_draft'
+                              ? 'The verifier found problems it could not repair, so this itinerary cannot be approved. You can still save it as an unverified draft, with those problems disclosed.'
+                              : canAccept
+                                ? 'Some information could not be confirmed (such as prices, opening hours or travel times), so this itinerary cannot be approved as verified. You can still accept it and save it to My Trips with its limitations.'
+                                : verification.level === 'verified'
+                                  ? 'This itinerary passed verification, but there is no approval waiting for it. Plan the trip again to approve it.'
+                                  : approvalBlockedReason(aiResult)}
               </p>
               {canApprove && options.basis === 'recorded' && (
                 <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-900">
@@ -837,22 +913,40 @@ export default function TripDashboard() {
                   them before you go.
                 </p>
               )}
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={!canApprove || approving}
-                aria-busy={approving}
-                className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-bold transition ${
-                  canApprove && !approving
-                    ? 'bg-[#245c6a] text-white hover:bg-[#347989]'
-                    : approval
-                      ? 'cursor-default bg-emerald-600 text-white'
-                      : 'cursor-not-allowed bg-[#dce9eb] text-[#819ba3]'
-                }`}
-              >
-                <CheckCircle2 size={18} />
-                {approval ? 'Approved' : approving ? 'Sending…' : 'Approve itinerary'}
-              </button>
+              {canAccept || approval?.mode ? (
+                <button
+                  type="button"
+                  onClick={openAccept}
+                  disabled={!canAccept || approving}
+                  aria-busy={approving}
+                  aria-haspopup="dialog"
+                  className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-bold transition ${
+                    canAccept && !approving
+                      ? 'bg-amber-600 text-white hover:bg-amber-700'
+                      : 'cursor-default border border-amber-300 bg-amber-50 text-amber-800'
+                  }`}
+                >
+                  {approval?.mode ? <BookmarkCheck size={18} /> : <ShieldAlert size={18} />}
+                  {approval?.mode ? ACCEPTANCE_LABELS[approval.mode] : approving ? 'Saving…' : accept.button}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={!canApprove || approving}
+                  aria-busy={approving}
+                  className={`flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 text-sm font-bold transition ${
+                    canApprove && !approving
+                      ? 'bg-[#245c6a] text-white hover:bg-[#347989]'
+                      : approval
+                        ? 'cursor-default bg-emerald-600 text-white'
+                        : 'cursor-not-allowed bg-[#dce9eb] text-[#819ba3]'
+                  }`}
+                >
+                  <CheckCircle2 size={18} />
+                  {approval ? 'Approved' : approving ? 'Sending…' : 'Approve itinerary'}
+                </button>
+              )}
               {canApprove && (
                 <button
                   type="button"
@@ -866,22 +960,97 @@ export default function TripDashboard() {
               )}
               {approveNote && (
                 <p role="status" className={`mt-3 rounded-xl p-3 text-center text-sm font-semibold ${
-                  rejected ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                  rejected || (!approval && canAccept) ? 'bg-slate-100 text-slate-700'
+                    : approval?.mode ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>
                   {approveNote}
                 </p>
               )}
               {approval && !approveNote && (
-                <p className="mt-3 text-center text-xs text-emerald-700">Saved trip ID: {approval.trip_id}</p>
+                <p className={`mt-3 text-center text-xs ${approval.mode ? 'text-amber-800' : 'text-emerald-700'}`}>
+                  Saved trip ID: {approval.trip_id}
+                </p>
               )}
               {approveError && (
                 <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-center text-sm text-red-700">
                   {approveError}
                 </p>
               )}
-              {!canApprove && !approval && !rejected && !approveError && (
+              {!canApprove && !canAccept && !approval && !rejected && !approveError && (
                 <p className="mt-3 text-center text-xs text-[#91a3ab]">Approval unavailable</p>
               )}
             </section>
+
+            {acceptOpen && canAccept && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#102f3b]/50 px-4 py-6"
+                onKeyDown={(e) => { if (e.key === 'Escape') cancelAccept() }}>
+                <div role="dialog" aria-modal="true" aria-labelledby="accept-title"
+                  className="max-h-full w-full max-w-lg overflow-y-auto rounded-[24px] bg-white p-6 shadow-xl">
+                  <h2 id="accept-title" className="mb-1 flex items-center gap-2 text-lg font-bold text-[#1c3544]">
+                    <ShieldAlert size={20} className="text-amber-600" />
+                    {accept.mode === 'unverified_draft' ? 'Save an unverified draft?' : 'Accept with limitations?'}
+                  </h2>
+                  <p className="mb-4 text-sm leading-6 text-[#62808a]">
+                    This itinerary is <strong>not fully verified</strong>. It will be saved to My Trips as
+                    {' '}<strong>"{accept.label}"</strong>, never as approved or verified. Nothing is booked or paid.
+                  </p>
+                  {accept.problems.length > 0 && (
+                    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                      <p className="mb-1 font-semibold">Confirmed problems the verifier could not repair:</p>
+                      <ul className="list-disc space-y-1 pl-5">
+                        {accept.problems.slice(0, 6).map((p) => <li key={p}>{p}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {accept.limitations.length > 0 && (
+                    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="mb-1 font-semibold">What could not be confirmed:</p>
+                      <ul className="list-disc space-y-1 pl-5">
+                        {accept.limitations.slice(0, 8).map((l) => <li key={l}>{l}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  <dl className="mb-4 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 rounded-xl bg-[#f1f7f8] p-3 text-sm">
+                    <dt className="text-[#62808a]">Known subtotal (priced items only)</dt>
+                    <dd className="text-right font-semibold">
+                      {accept.costs.known_subtotal != null && Number.isFinite(Number(accept.costs.known_subtotal))
+                        ? formatMoney(Number(accept.costs.known_subtotal), accept.costs.currency || view.currency)
+                          + (Number(accept.costs.known_subtotal) === 0 && (accept.costs.unpriced_items || []).length
+                            ? ' (no planned item has a price)' : '')
+                        : 'Unknown'}
+                    </dd>
+                    <dt className="text-[#62808a]">Items with price unavailable</dt>
+                    <dd className="text-right font-semibold">{(accept.costs.unpriced_items || []).length}</dd>
+                    <dt className="col-span-2 mt-1 text-xs text-[#62808a]">
+                      Unavailable prices are not counted as free, so the final budget cannot be guaranteed.
+                    </dt>
+                  </dl>
+                  <label className="mb-5 flex items-start gap-3 text-sm leading-6 text-[#1c3544]">
+                    <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)}
+                      disabled={approving} className="mt-1 h-4 w-4 accent-amber-600" />
+                    <span>
+                      I understand this itinerary is not fully verified, and I want to save it with these
+                      {accept.mode === 'unverified_draft' ? ' problems' : ' limitations'}.
+                    </span>
+                  </label>
+                  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                    <button type="button" onClick={cancelAccept} disabled={approving}
+                      className="rounded-2xl border border-[#d5e6e9] px-5 py-3 text-sm font-semibold text-[#245c6a] transition hover:bg-[#e7f3f4] disabled:opacity-60">
+                      Cancel
+                    </button>
+                    <button type="button" onClick={handleAccept} disabled={!acknowledged || approving}
+                      aria-busy={approving}
+                      className="rounded-2xl bg-amber-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50">
+                      {approving ? 'Saving…' : accept.button}
+                    </button>
+                  </div>
+                  {approveError && (
+                    <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-center text-sm text-red-700">
+                      {approveError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </aside>
         </div>
 

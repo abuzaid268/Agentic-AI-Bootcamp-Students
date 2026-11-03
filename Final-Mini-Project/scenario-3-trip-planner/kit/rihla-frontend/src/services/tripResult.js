@@ -1,7 +1,9 @@
 // Statuses for which POST /api/chat returns a freshly generated itinerary.
 // See app/main.py: "pending_approval" is only set after trusted verification.
-// "approved": a trip saved in the Rihla Trip Store after approval (opened from My Trips).
-const ITINERARY_STATUSES = new Set(['pending_approval', 'verification_required', 'approved'])
+// "approved": a trip saved in the Rihla Trip Store after approval (opened from My Trips); "saved_limited" and
+// "saved_draft": one the traveller saved with its limitations (POST /api/accept), never verified.
+const ITINERARY_STATUSES = new Set(['pending_approval', 'verification_required', 'approved', 'saved_limited',
+  'saved_draft'])
 
 function incomplete(what) {
   return new Error(

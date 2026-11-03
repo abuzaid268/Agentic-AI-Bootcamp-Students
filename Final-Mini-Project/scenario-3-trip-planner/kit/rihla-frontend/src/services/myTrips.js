@@ -9,10 +9,20 @@ const storeStatus = (mode) => SAVE_MODE_STATUS[mode] || 'approved'
 // One card per trip. A store trip is "approved" (it can only get there through a verified approval). A local
 // entry with an approval the store does not list stays approved, said to be a local copy. A local entry
 // without one is a draft.
-export function mergeTrips(storeTrips, localTrips, { storeAvailable }) {
-  const byTripId = new Map(localTrips.filter((t) => t.approval?.trip_id).map((t) => [t.approval.trip_id, t]))
+// While the store's list is loading (`storeLoading`), a local copy carries no note: it is not known yet whether
+// the store lists it.
+// A local copy belongs to a store trip only when it is that trip: the same id AND destination and dates. An id
+// alone is not enough: a Trip Store that lost its trips (one without TRAVEL_DB_PATH, restarted) gives the same ids
+// to new trips, and an old copy would show another trip's request details and its own status on the new one.
+const sameTrip = (local, s) => local.approval?.trip_id === s.trip_id
+  && (!s.start_date || local.startDate === s.start_date) && (!s.end_date || local.endDate === s.end_date)
+  && (!s.destination || String(local.destination || '').toLowerCase() === String(s.destination).toLowerCase())
+
+export function mergeTrips(storeTrips, localTrips, { storeAvailable, storeLoading = false }) {
+  const matched = new Set()
   const cards = (storeTrips || []).map((s) => {
-    const local = byTripId.get(s.trip_id)
+    const local = localTrips.find((t) => !matched.has(t.id) && sameTrip(t, s))
+    if (local) matched.add(local.id)
     return {
       id: `store:${s.trip_id}`,
       tripId: s.trip_id,
@@ -30,9 +40,8 @@ export function mergeTrips(storeTrips, localTrips, { storeAvailable }) {
       localId: local?.id || null,
     }
   })
-  const listed = new Set(cards.map((c) => c.tripId))
   for (const t of localTrips) {
-    if (t.approval?.trip_id && listed.has(t.approval.trip_id)) continue
+    if (matched.has(t.id)) continue // shown as its store trip
     cards.push({
       ...t,
       id: `local:${t.id}`,
@@ -40,7 +49,7 @@ export function mergeTrips(storeTrips, localTrips, { storeAvailable }) {
       source: 'local',
       localId: t.id,
       status: t.sample ? 'sample' : t.approval?.trip_id ? storeStatus(t.approval.mode) : t.verified ? 'verified_draft' : 'draft',
-      note: t.approval?.trip_id
+      note: t.approval?.trip_id && !storeLoading
         ? (storeAvailable
           ? `${t.approval.mode ? 'Saved' : 'Approved'}, but the Trip Store no longer lists it (the simulated store was restarted). Showing the copy kept in this browser.`
           : `${t.approval.mode ? 'Saved' : 'Approved'}. The Trip Store cannot be reached right now: showing the copy kept in this browser.`)

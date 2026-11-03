@@ -92,3 +92,21 @@ def test_an_interest_with_no_checkable_place_is_reported():
     views = [p for p in b.places if "views" in p.tags and p.place_id != "wv-istanbul-topkapi-palace"]
     if views:  # the required Topkapi Palace (tagged views) stays, so the interest is still served by it
         assert not any("No place for 'views'" in n for n in notes)
+
+
+def test_a_stalled_routing_service_cannot_hold_the_plan_and_sets_nothing_aside(monkeypatch):
+    # once a stalled service made this step take 589 s: past the time budget nothing new is asked and an
+    # unanswered probe counts as not asked, so its place stays (the Verifier checks it later, as for any place)
+    import time
+    import planning.evidence as evidence
+    monkeypatch.setattr(evidence, "TIME_BUDGET_S", 1.0)
+
+    def slow(a, b):
+        if "Pera Museum" in (a, b):
+            time.sleep(4)
+        return {"ok": True, "duration_min": 9}
+    started = time.monotonic()
+    kept, notes = checkable_bundle(bundle(), slow)
+    assert time.monotonic() - started < 3.5
+    assert "wv-istanbul-pera-museum" in ids(kept)  # not answered in time: kept, never set aside on a guess
+    assert not any("Pera Museum (no measurable walking route" in n for n in notes)

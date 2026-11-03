@@ -1,12 +1,17 @@
-# Simulated systems for the Trip Planner mini-project.
-# Run:  docker compose up --build        ->  travel API on http://localhost:8103
+# Rihla in Docker: the kit's simulated travel API, the Rihla backend (API contract + agents + MCP client) and the
+# web app.  From kit/:
+#   docker compose up --build       ->  web app http://localhost:5173 · API http://localhost:8000 · travel API :8103
+#   docker compose down             ->  stops and removes these containers (no volumes are used)
+# Settings and secrets come from kit/.env (git-ignored; copy .env.example) or the shell. See DOCKER.md.
 services:
+  # The kit's simulated systems (unchanged image: services/Dockerfile). The eval runner and the hidden tests reach
+  # it on the host at :8103 for /admin/*.
   travel-api:
     build:
       context: .
       dockerfile: services/Dockerfile
     ports:
-      - "8103:8103"
+      - "${TRAVEL_API_PORT:-8103}:8103"
     environment:
       TRAVEL_API_KEY: ${TRAVEL_API_KEY:-dev-key-change-me}
       TRAVEL_MODE: ${TRAVEL_MODE:-replay}
@@ -17,14 +22,41 @@ services:
     # volumes:
     #   - ./services/cache:/app/services/cache
 
-  # Your own service (the API contract on port 8000). Uncomment when you have a Dockerfile at the repo root.
-  # app:
-  #   build: .
-  #   ports:
-  #     - "8000:8000"
-  #   env_file: .env
-  #   environment:
-  #     TRAVEL_API_URL: http://travel-api:8103
-  #   depends_on:
-  #     travel-api:
-  #       condition: service_healthy
+  # The Rihla backend: POST /api/chat, POST /api/approve, GET /api/trips, /api/auth/*, GET /health on :8000.
+  # Its MCP client starts the kit's MCP server (services.travel_mcp) inside this container over stdio; that server
+  # calls the travel API by its service name.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${RIHLA_APP_PORT:-8000}:8000"
+    env_file:
+      - path: .env          # OPENROUTER_API_KEY, TRAVEL_TRAVELLER_ID, RIHLA_* ... (never baked into the image)
+        required: false
+    environment:
+      # Inside Docker the travel API is the travel-api service, whatever .env says for a laptop run.
+      TRAVEL_API_URL: http://travel-api:8103
+      # The same key the travel-api service was started with (the MCP server sends it as X-API-Key).
+      TRAVEL_API_KEY: ${TRAVEL_API_KEY:-dev-key-change-me}
+    depends_on:
+      travel-api:
+        condition: service_healthy
+
+  # The web app: the built rihla-frontend served by nginx, which forwards /api to the app service (one origin, so
+  # the sign-in cookie and RIHLA_ALLOWED_ORIGINS' default http://localhost:5173 work as in development).
+  web:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        VITE_ENABLE_LIVE_AI: ${VITE_ENABLE_LIVE_AI:-true}
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+    ports:
+      - "${RIHLA_WEB_PORT:-5173}:80"
+    depends_on:
+      app:
+        condition: service_healthy

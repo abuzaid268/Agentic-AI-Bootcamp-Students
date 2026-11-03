@@ -1,0 +1,259 @@
+"""Worldwide city search for the trip form's destination box (search as you type).
+
+Provider: the Open-Meteo Geocoding API (https://open-meteo.com/en/docs/geocoding-api), free and without a key,
+built on GeoNames. It is made for search as you type: three or more characters match by prefix and
+fuzzily, two match exactly, one returns nothing. Results carry a stable GeoNames id, coordinates, country,
+region, population and time zone. (The kit's geocode tool is Nominatim, an exact single-place lookup whose
+usage policy forbids autocomplete, and in replay mode it answers only recorded queries, so it is not used here.)
+
+Only populated places are returned (GeoNames feature codes PPL*, without historical, abandoned, destroyed or
+"section of" places). Nothing is invented: no result is a valid answer, and a provider failure is reported
+as one, never filled in.
+
+Limits that keep the free provider usable for everyone: results are cached (shorter for an empty answer),
+and the number of provider calls per minute is capped for the whole server; a cached query never counts.
+"""
+from __future__ import annotations
+
+import math
+import os
+import re
+import threading
+import time
+import unicodedata
+from collections import OrderedDict, deque
+from typing import Any, Callable
+
+import httpx
+
+PROVIDER_URL = "https://geocoding-api.open-meteo.com/v1/search"
+SOURCE = {
+    "provider": "Open-Meteo Geocoding API (GeoNames)",
+    "url": "https://open-meteo.com/en/docs/geocoding-api",
+    "licence": "CC BY 4.0",
+    "attribution": "City data from GeoNames (geonames.org), CC BY 4.0, via Open-Meteo.com",
+}
+
+MIN_QUERY_LENGTH = 2
+MAX_QUERY_LENGTH = 80
+DEFAULT_LIMIT = 8
+MAX_LIMIT = 10
+OVERFETCH = 3  # ask the provider for more, so that non-city matches can be dropped and the list stays full
+PROVIDER_MAX_COUNT = 30
+
+# GeoNames populated-place codes that are not a destination today.
+EXCLUDED_CODES = {"PPLH", "PPLQ", "PPLW", "PPLX", "PPLCH"}
+
+
+class DestinationError(Exception):
+    """A search that could not be answered: an HTTP status, a stable code, a message for the traveller."""
+
+    def __init__(self, status: int, code: str, message: str, *, retryable: bool = False,
+                 retry_after: int | None = None):
+        super().__init__(message)
+        self.status, self.code, self.message = status, code, message
+        self.retryable, self.retry_after = retryable, retry_after
+
+    def as_dict(self) -> dict:
+        error = {"code": self.code, "message": self.message, "retryable": self.retryable}
+        if self.retry_after is not None:
+            error["retry_after"] = self.retry_after
+        return {"error": error}
+
+
+def _env_number(name: str, default: float, low: float, high: float) -> float:
+    try:
+        value = float(os.getenv(name, default))
+    except ValueError:
+        return default
+    return value if low <= value <= high else default
+
+
+def normalize_query(raw: Any) -> str:
+    """The query as searched: Unicode NFC, whitespace collapsed. Raises DestinationError(422) when unusable."""
+    if not isinstance(raw, str) or not raw.strip():
+        raise DestinationError(422, "missing_query", "Type at least 2 letters of a city name.")
+    text = " ".join(unicodedata.normalize("NFC", raw).split())
+    if any(unicodedata.category(ch) == "Cc" for ch in text):
+        raise DestinationError(422, "invalid_query", "The search text contains characters that are not allowed.")
+    if not any(ch.isalpha() for ch in text):
+        raise DestinationError(422, "invalid_query", "Type a city name (letters, not only numbers or symbols).")
+    if len(text) < MIN_QUERY_LENGTH:
+        raise DestinationError(422, "query_too_short", "Type at least 2 letters of a city name.")
+    if len(text) > MAX_QUERY_LENGTH:
+        raise DestinationError(422, "query_too_long", f"The search text is limited to {MAX_QUERY_LENGTH} characters.")
+    return text
+
+
+def _fold(text: str) -> str:
+    """Case- and accent-insensitive form, to compare names ("São Paulo" == "sao paulo")."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text.casefold()) if not unicodedata.combining(c))
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
+def _text(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def normalize_result(item: Any) -> dict | None:
+    """One provider result as Rihla's destination, or None when it is not a usable populated place."""
+    if not isinstance(item, dict):
+        return None
+    code = _text(item.get("feature_code"))
+    if not code or not code.startswith("PPL") or code in EXCLUDED_CODES:
+        return None
+    pid, name = item.get("id"), _text(item.get("name"))
+    lat, lon = _number(item.get("latitude")), _number(item.get("longitude"))
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or not name:
+        return None
+    if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
+        return None
+    country, region = _text(item.get("country")), _text(item.get("admin1"))
+    country_code = _text(item.get("country_code"))
+    population = item.get("population")
+    return {
+        "id": f"geonames:{pid}",
+        "provider_id": pid,
+        "name": name,
+        "region": region,
+        "country": country,
+        "country_code": country_code.upper() if country_code and re.fullmatch(r"[A-Za-z]{2}", country_code) else None,
+        "latitude": round(lat, 5),
+        "longitude": round(lon, 5),
+        "population": population if isinstance(population, int) and not isinstance(population, bool)
+        and population >= 0 else None,
+        "timezone": _text(item.get("timezone")),
+        "feature_code": code,
+        "label": ", ".join(part for part in (name, region if region != name else None, country) if part),
+    }
+
+
+class _TTLCache:
+    def __init__(self, max_entries: int):
+        self._data: OrderedDict[tuple, tuple[float, dict]] = OrderedDict()
+        self._max = max_entries
+
+    def get(self, key: tuple, now: float) -> dict | None:
+        hit = self._data.get(key)
+        if hit is None:
+            return None
+        expires, value = hit
+        if now >= expires:
+            del self._data[key]
+            return None
+        self._data.move_to_end(key)
+        return value
+
+    def put(self, key: tuple, value: dict, expires: float) -> None:
+        self._data[key] = (expires, value)
+        self._data.move_to_end(key)
+        while len(self._data) > self._max:
+            self._data.popitem(last=False)
+
+
+class DestinationSearch:
+    """Searches the provider, with a cache and a cap on provider calls per minute. Thread-safe."""
+
+    def __init__(self, *, client: httpx.Client | None = None, url: str | None = None,
+                 timeout_s: float | None = None, max_calls_per_minute: int | None = None,
+                 cache_ttl_s: float = 6 * 3600, empty_ttl_s: float = 600, cache_entries: int = 512,
+                 clock: Callable[[], float] = time.monotonic):
+        self.url = url or os.getenv("RIHLA_DESTINATIONS_URL") or PROVIDER_URL
+        timeout = timeout_s if timeout_s is not None else _env_number("RIHLA_DESTINATIONS_TIMEOUT_S", 4, 0.5, 30)
+        contact = (os.getenv("TRAVEL_CONTACT") or "").strip()
+        self._client = client or httpx.Client(
+            timeout=timeout, headers={"User-Agent": "Rihla-trip-planner" + (f" ({contact})" if contact else "")})
+        self._max_calls = int(max_calls_per_minute if max_calls_per_minute is not None
+                              else _env_number("RIHLA_DESTINATIONS_MAX_PER_MINUTE", 60, 1, 600))
+        self._ttl, self._empty_ttl = cache_ttl_s, empty_ttl_s
+        self._cache = _TTLCache(cache_entries)
+        self._calls: deque[float] = deque()
+        self._clock = clock
+        self._lock = threading.Lock()
+
+    def _take_call_slot(self, now: float) -> None:
+        with self._lock:
+            while self._calls and now - self._calls[0] >= 60:
+                self._calls.popleft()
+            if len(self._calls) >= self._max_calls:
+                wait = max(1, math.ceil(60 - (now - self._calls[0])))
+                raise DestinationError(429, "rate_limited", "Too many city searches right now. Please try again "
+                                       "in a moment.", retryable=True, retry_after=wait)
+            self._calls.append(now)
+
+    def _fetch(self, query: str, count: int, language: str) -> list:
+        try:
+            response = self._client.get(self.url, params={"name": query, "count": count, "language": language,
+                                                          "format": "json"})
+        except httpx.TimeoutException as exc:
+            raise DestinationError(504, "provider_timeout", "The city search service did not answer in time. "
+                                   "Please try again.", retryable=True) from exc
+        except httpx.HTTPError as exc:
+            raise DestinationError(503, "provider_unavailable", "The city search service cannot be reached "
+                                   "right now. Please try again.", retryable=True) from exc
+        if response.status_code == 429:
+            retry = response.headers.get("Retry-After", "")
+            raise DestinationError(503, "provider_rate_limited", "The city search service is busy. Please try "
+                                   "again in a minute.", retryable=True,
+                                   retry_after=int(retry) if retry.isdigit() else 60)
+        if response.status_code >= 500:
+            raise DestinationError(502, "provider_error", "The city search service had a problem. Please try "
+                                   "again.", retryable=True)
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise DestinationError(502, "provider_bad_response", "The city search service sent an unreadable "
+                                   "answer.") from exc
+        if response.status_code >= 400 or not isinstance(body, dict) or body.get("error"):
+            raise DestinationError(502, "provider_rejected", "The city search service could not run this search.")
+        results = body.get("results", [])  # the provider leaves "results" out when nothing matches
+        if not isinstance(results, list):
+            raise DestinationError(502, "provider_bad_response", "The city search service sent an unexpected answer.")
+        return results
+
+    def search(self, raw_query: Any, *, limit: int = DEFAULT_LIMIT, language: str = "en") -> dict:
+        query = normalize_query(raw_query)
+        limit = max(1, min(MAX_LIMIT, int(limit)))
+        language = language.lower() if isinstance(language, str) and re.fullmatch(r"[A-Za-z]{2}", language) else "en"
+        count = min(PROVIDER_MAX_COUNT, limit * OVERFETCH)
+        key = (_fold(query), count, language)
+        now = self._clock()
+        with self._lock:
+            cached = self._cache.get(key, now)
+        if cached is None:
+            self._take_call_slot(now)
+            raw = self._fetch(query, count, language)
+            seen, places = set(), []
+            for item in raw:
+                place = normalize_result(item)
+                if place and place["id"] not in seen:
+                    seen.add(place["id"])
+                    places.append(place)
+            cached = {"places": places}
+            with self._lock:
+                self._cache.put(key, cached, now + (self._ttl if places else self._empty_ttl))
+            from_cache = False
+        else:
+            from_cache = True
+        return self._answer(query, cached["places"][:limit], from_cache)
+
+    @staticmethod
+    def _answer(query: str, places: list[dict], cached: bool) -> dict:
+        names: dict[str, int] = {}
+        for place in places:
+            names[_fold(place["name"])] = names.get(_fold(place["name"]), 0) + 1
+        results = [{**place, "ambiguous_name": names[_fold(place["name"])] > 1} for place in places]
+        return {
+            "query": query,
+            "count": len(results),
+            "results": results,
+            # The best match shares its name with another result: show region and country before choosing.
+            "ambiguous": bool(results) and results[0]["ambiguous_name"],
+            "cached": cached,
+            "source": dict(SOURCE),
+        }

@@ -1,0 +1,24 @@
+# Build context for every image in docker-compose.yml (context: kit/). Secrets and local tooling never enter an image.
+
+# Secrets and local settings
+.env
+.env.*
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Local environments, caches and build output
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+**/node_modules/
+rihla-frontend/dist/
+
+# Not needed in any image
+.git/
+**/*.bak
+**/*.log
+tests/
+evals/scorecard*

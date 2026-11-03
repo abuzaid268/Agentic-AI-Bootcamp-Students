@@ -29,6 +29,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import google_places as gp
 from . import travel_data as td
+from . import trip_db
 
 SERVICE = "rihla-travel-api"
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -63,17 +64,33 @@ def api_key() -> str:
     return os.getenv("TRAVEL_API_KEY") or "dev-key-change-me"
 
 
+def admin_allowed() -> None:
+    """The /admin endpoints (no API key: reset, faults, every trip) are for throwaway test stores. With durable
+    storage on (TRAVEL_DB_PATH: real travellers' trips) they are refused unless TRAVEL_ADMIN_ENDPOINTS=on."""
+    if trip_db.db_path() is not None and os.getenv("TRAVEL_ADMIN_ENDPOINTS", "").strip().lower() != "on":
+        raise ApiError(403, "admin_disabled", "The admin endpoints are off on a Trip Store with durable storage "
+                                              "(set TRAVEL_ADMIN_ENDPOINTS=on only for a test store).")
+
+
 def env_overlays() -> list[str]:
     return [n.strip() for n in os.getenv("TRAVEL_OVERLAYS", "").split(",") if n.strip()]
 
 
 def reset_state() -> None:
+    """The seed data (services/data), plus what is stored durably when TRAVEL_DB_PATH is set (services/trip_db.py):
+    saved trips, idempotency keys, the next trip number and saved preferences come back after a restart."""
     travellers = json.loads((DATA_DIR / "travellers.json").read_text(encoding="utf-8"))
     trips = json.loads((DATA_DIR / "trips.json").read_text(encoding="utf-8"))
+    stored = trip_db.load() or {"trips": [], "idempotency": {}, "travellers": {}, "next_trip": None}
+    by_id = {t["traveller_id"]: t for t in travellers}
+    by_id.update(stored["travellers"])
+    numbers = [int(t["trip_id"].split("-")[1]) for t in trips + stored["trips"]
+               if re.fullmatch(r"TRIP-\d+", str(t.get("trip_id")))]
+    next_trip = max([3001 + len(trips), stored["next_trip"] or 0] + [n + 1 for n in numbers])
     with LOCK:
         STATE.clear()
-        STATE.update(travellers={t["traveller_id"]: t for t in travellers}, trips=trips,
-                     next_trip=3001 + len(trips), idempotency={}, overlays=td.load_overlays(env_overlays()))
+        STATE.update(travellers=by_id, trips=trips + stored["trips"], next_trip=next_trip,
+                     idempotency=dict(stored["idempotency"]), overlays=td.load_overlays(env_overlays()))
         FAULTS.clear()
         LOG.clear()
 
@@ -462,12 +479,16 @@ def save_trip(body: dict = Body(..., examples=[{"traveller_id": "TRV-101", "titl
                 raise ApiError(409, "idempotency_conflict", "This Idempotency-Key was already used with a different body.")
             return UTF8JSONResponse(status_code=201, content=seen["response"], headers={"Idempotent-Replayed": "true"})
         trip_id = f"TRIP-{STATE['next_trip']}"
-        STATE["next_trip"] += 1
         rec = trip_record(trip_id, body, idempotency_key)
-        STATE["trips"].append(rec)
         response = dict(trip_summary(rec), note=NOT_BOOKED)
+        seen = {"digest": digest, "response": response}
+        # Stored durably first (services/trip_db.py, when TRAVEL_DB_PATH is set): if that fails, the request fails
+        # and nothing is reported as saved.
+        trip_db.save_trip(rec, STATE["next_trip"] + 1, idempotency_key, seen)
+        STATE["next_trip"] += 1
+        STATE["trips"].append(rec)
         if idempotency_key:
-            STATE["idempotency"][idempotency_key] = {"digest": digest, "response": response}
+            STATE["idempotency"][idempotency_key] = seen
     return response
 
 
@@ -523,23 +544,25 @@ def save_preferences(traveller_id: str, body: dict = Body(..., examples=[{"dieta
     if "activity_pace" in prefs and prefs["activity_pace"] not in ("relaxed", "balanced", "packed"):
         raise ApiError(422, "bad_value", "activity_pace must be relaxed, balanced or packed.")
     with LOCK:
-        t = traveller(traveller_id)
-        if not t:
-            t = {"traveller_id": traveller_id, "name": None, "preferences": {}, "updated_at": None}
-            STATE["travellers"][traveller_id] = t
+        current = traveller(traveller_id)
+        t = copy.deepcopy(current) if current else {"traveller_id": traveller_id, "name": None, "preferences": {},
+                                                    "updated_at": None}
         t["preferences"].update(prefs)
         t["updated_at"] = td.now_iso()
+        trip_db.save_traveller(t)  # stored durably first (TRAVEL_DB_PATH); a failure saves nothing
+        STATE["travellers"][current["traveller_id"] if current else traveller_id] = t
         return copy.deepcopy(t)
 
 
 # ------------------------------------------------------------------ TEST-ONLY admin endpoints (no API key)
-@app.post("/admin/reset", tags=["admin (test-only)"])
+@app.post("/admin/reset", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_reset():
+    trip_db.clear()  # with TRAVEL_DB_PATH set, this erases the stored trips too: never call it on real data
     reset_state()
     return {"status": "reset", "overlays": overlays()["names"], "trips": 0}
 
 
-@app.post("/admin/faults", tags=["admin (test-only)"])
+@app.post("/admin/faults", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_faults(body: dict = Body(..., examples=[{"target": "attractions", "mode": "error_503", "count": 1}])):
     target, how, count = body.get("target"), body.get("mode"), body.get("count", 1)
     if target not in FAULT_TARGETS:
@@ -553,39 +576,39 @@ def admin_faults(body: dict = Body(..., examples=[{"target": "attractions", "mod
         return {"status": "armed", "faults": copy.deepcopy(FAULTS)}
 
 
-@app.delete("/admin/faults", tags=["admin (test-only)"])
+@app.delete("/admin/faults", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_clear_faults():
     with LOCK:
         FAULTS.clear()
     return {"status": "cleared", "faults": {}}
 
 
-@app.get("/admin/faults", tags=["admin (test-only)"])
+@app.get("/admin/faults", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_list_faults():
     return {"faults": copy.deepcopy(FAULTS)}
 
 
-@app.get("/admin/log", tags=["admin (test-only)"])
+@app.get("/admin/log", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_log(limit: int = 100):
     return {"log": list(LOG)[-max(1, min(limit, 300)):]}
 
 
-@app.get("/admin/trips", tags=["admin (test-only)"])
+@app.get("/admin/trips", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_trips():
     return {"trips": copy.deepcopy(STATE["trips"])}
 
 
-@app.get("/admin/travellers", tags=["admin (test-only)"])
+@app.get("/admin/travellers", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_travellers():
     return {"travellers": copy.deepcopy(list(STATE["travellers"].values()))}
 
 
-@app.get("/admin/overlays", tags=["admin (test-only)"])
+@app.get("/admin/overlays", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_overlays():
     return {"active": overlays()["names"], "available": td.available_overlays()}
 
 
-@app.post("/admin/overlays", tags=["admin (test-only)"])
+@app.post("/admin/overlays", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_set_overlays(body: dict = Body(..., examples=[{"names": ["price_conflict"]}])):
     names = body.get("names", [body["name"]] if body.get("name") else None)
     if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
@@ -596,7 +619,7 @@ def admin_set_overlays(body: dict = Body(..., examples=[{"names": ["price_confli
     return {"status": "set", "active": merged["names"], "synthetic": True}
 
 
-@app.delete("/admin/overlays", tags=["admin (test-only)"])
+@app.delete("/admin/overlays", tags=["admin (test-only)"], dependencies=[Depends(admin_allowed)])
 def admin_clear_overlays():
     with LOCK:
         STATE["overlays"] = td.load_overlays([])

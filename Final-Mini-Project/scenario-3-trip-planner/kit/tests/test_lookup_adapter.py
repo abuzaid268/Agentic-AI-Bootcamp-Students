@@ -89,3 +89,28 @@ def test_the_walking_threshold_is_configurable_with_a_safe_default(monkeypatch, 
     else:
         monkeypatch.setenv("RIHLA_MAX_WALK_MINUTES", value)
     assert adapter.max_walk_minutes() == expected
+
+
+# One planning request asks the same questions several times (Planner, Verifier, targeted revision): each is asked
+# once per request; a failure is never kept; a new request (a new lookup) asks again.
+def test_a_leg_is_asked_once_per_request_and_a_new_request_asks_again(monkeypatch):
+    fake = tool({"foot": [walk(9), walk(11)]})
+    monkeypatch.setattr(adapter, "call_read_tool", fake)
+    lookup = adapter.create_travel_lookup("Amman", mode="foot", ride_after_minutes=30)
+    first, again = lookup("Citadel", "Roman Theater"), lookup("Citadel", "Roman Theater")
+    assert first == again and first["duration_min"] == 9 and len(fake.calls) == 1
+    again["duration_min"] = 99  # a caller changing its copy does not change the next answer
+    assert lookup("Citadel", "Roman Theater")["duration_min"] == 9
+    fresh = adapter.create_travel_lookup("Amman", mode="foot", ride_after_minutes=30)("Citadel", "Roman Theater")
+    assert fresh["duration_min"] == 11 and len(fake.calls) == 2
+
+
+def test_a_failed_lookup_is_not_kept_and_is_asked_again(monkeypatch):
+    fake = tool({"hours": [{"ok": False, "error": {"code": "not_found"}},
+                           {"ok": True, "status": "open", "hours": "09:00-17:00"}]})
+    monkeypatch.setattr(adapter, "call_read_tool", fake)
+    hours = adapter.create_hours_lookup("Amman")
+    with pytest.raises(adapter.MCPLookupError):
+        hours("Citadel")
+    assert hours("Citadel")["status"] == "open" and hours("Citadel")["status"] == "open"
+    assert len(fake.calls) == 2  # the failure, then one successful answer reused
