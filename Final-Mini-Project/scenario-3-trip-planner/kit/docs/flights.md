@@ -18,7 +18,7 @@
 | React: form and results | `rihla-frontend/src/features/flights/FlightSearch.jsx` |
 | React: one offer | `rihla-frontend/src/features/flights/FlightOfferCard.jsx` |
 | API client and pure helpers | `rihla-frontend/src/features/flights/flightsApi.js`, `flightState.js` |
-| Tests | `tests/test_flights.py` (91), `rihla-frontend/src/features/flights/flights.test.js` (17) |
+| Tests | `tests/test_flights.py` (91), `rihla-frontend/src/features/flights/flights.test.js` (20) |
 | Real DEMO answer used by the frontend tests | `rihla-frontend/src/features/flights/fixtures/demo_tlv_lhr_round_trip.json` |
 
 ## Provider selection
@@ -275,6 +275,9 @@ import { FlightSearch } from './features/flights'
 - Departure and return dates. Past dates can't be picked.
 - Adults, 1–9, and the cabin class.
 - The form checks itself before sending. Server errors are shown next to the field they name.
+- **Results always match the form.** Changing the route, a date, the trip type, the passengers or the cabin hides
+  the offers (or the error) of the previous search and says "Your search changed. Search again". An older search
+  that answers after a newer one started is ignored (`searchKey`, `resultState`, `latestOnly` in `flightState.js`).
 
 **The results:**
 - A banner with the data-mode badge, the provider, the notices and the retrieval time.

@@ -43,6 +43,26 @@ export function validateFlightForm({ origin, destination, departureDate, returnD
   return errors
 }
 
+// What a search asks for. Offers (or an error) on screen belong to the key they were searched with: once the
+// form no longer matches it, they are hidden instead of being shown as if they answered the new search.
+export function searchKey({ origin, destination, departureDate, returnDate, roundTrip, adults, cabinClass }) {
+  return JSON.stringify([
+    origin?.iata ?? null, destination?.iata ?? null, departureDate || '', roundTrip ? returnDate || '' : '',
+    Number(adults) || 0, cabinClass || 'economy',
+  ])
+}
+
+// What to show: 'stale' when a finished search (ready or error) no longer matches the form; otherwise the status.
+export function resultState(status, resultKey, currentKey) {
+  return (status === 'ready' || status === 'error') && resultKey !== currentKey ? 'stale' : status
+}
+
+// Only the newest search may change the screen: an older one that answers late is ignored.
+export function latestOnly() {
+  let current = 0
+  return { start: () => ++current, isCurrent: (ticket) => ticket === current }
+}
+
 const textOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null)
 const intOrNull = (value) => (Number.isInteger(value) && value >= 0 ? value : null)
 const isAmount = (value) => typeof value === 'string' && /^\d+(\.\d+)?$/.test(value) && Number(value) > 0

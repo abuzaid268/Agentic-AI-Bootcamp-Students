@@ -162,6 +162,8 @@ import { DestinationSearch } from './features/destinations'
 - Enter chooses the highlighted city. With no list open, Enter submits the form as usual.
 - Esc closes the list; Tab moves on.
 
+**Keeping the parent in step (for whoever places it).** The box keeps its own text after it mounts: `defaultValue` is read once, like an uncontrolled `<input>`. Every change reaches the parent through `onTextChange` and `onSelect`, and `onSelect(null)` means the text no longer names a chosen place. A parent that resets or replaces the value from outside (for example clearing the form, or loading another trip) must remount the box with a new `key`, e.g. `<DestinationSearch key={formVersion} defaultValue={destination} … />`. Changing `defaultValue` alone does not change the text. `App.jsx` on `main` (2026-11-03) sets the destination only from the input, so it needs nothing more today.
+
 **Errors.** A retryable error shows "Try again". If the backend does not have the route yet (404), the box says city
 search is not available, and the traveller can still type the destination.
 

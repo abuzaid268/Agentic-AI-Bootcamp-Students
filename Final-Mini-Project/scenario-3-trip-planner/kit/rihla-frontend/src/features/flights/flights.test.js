@@ -7,8 +7,8 @@ import {
   FlightSearchError, fetchFlightStatus, flightSearchUrl, isFlightsUnavailable, searchFlights,
 } from './flightsApi.js'
 import {
-  baggageLabel, cheapestByCurrency, dayShift, formatDuration, formatPrice, sanitizeFlightAnswer, sanitizeOffer,
-  sortOffers, stopsLabel, validateFlightForm,
+  baggageLabel, cheapestByCurrency, dayShift, formatDuration, formatPrice, latestOnly, resultState,
+  sanitizeFlightAnswer, sanitizeOffer, searchKey, sortOffers, stopsLabel, validateFlightForm,
 } from './flightState.js'
 
 // A real answer from the backend's DEMO provider (app/flights): TLV -> LHR round trip, 2 adults.
@@ -202,5 +202,47 @@ describe('informational only', () => {
       .map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n')
     assert.doesNotMatch(source, /method:\s*['"](POST|PUT|PATCH|DELETE)/i)
     assert.doesNotMatch(source, /\/orders|\/payments|payment_intent|>\s*Book\b|Buy now/i)
+  })
+})
+
+describe('results always match the search on screen', () => {
+  const TLV = { iata: 'TLV' }
+  const LHR = { iata: 'LHR' }
+  const form = { origin: TLV, destination: LHR, departureDate: '2026-12-01', returnDate: '2026-12-08', roundTrip: true,
+    adults: 2, cabinClass: 'economy' }
+
+  it('changing any search input makes the shown offers (or error) stale', () => {
+    const searched = searchKey(form)
+    assert.equal(resultState('ready', searched, searchKey({ ...form })), 'ready')
+    for (const change of [{ origin: { iata: 'AMM' } }, { destination: { iata: 'CDG' } }, { departureDate: '2026-12-02' },
+      { returnDate: '2026-12-09' }, { roundTrip: false }, { adults: 3 }, { cabinClass: 'business' }, { origin: null }]) {
+      assert.equal(resultState('ready', searched, searchKey({ ...form, ...change })), 'stale', JSON.stringify(change))
+      assert.equal(resultState('error', searched, searchKey({ ...form, ...change })), 'stale', JSON.stringify(change))
+    }
+    // Loading, idle and the same search again are not stale; a one-way search ignores the hidden return date.
+    assert.equal(resultState('loading', searched, searchKey({ ...form, adults: 3 })), 'loading')
+    assert.equal(resultState('idle', null, searchKey(form)), 'idle')
+    const oneWay = searchKey({ ...form, roundTrip: false })
+    assert.equal(resultState('ready', oneWay, searchKey({ ...form, roundTrip: false, returnDate: '2026-12-20' })), 'ready')
+  })
+
+  it('an older search that answers late cannot replace a newer one', async () => {
+    const searches = latestOnly()
+    const shown = []
+    const later = (value, ms) => new Promise((resolve) => setTimeout(() => resolve(value), ms))
+    const run = async (value, ms) => {
+      const ticket = searches.start()
+      const answer = await later(value, ms)
+      if (searches.isCurrent(ticket)) shown.push(answer)
+    }
+    await Promise.all([run('TLV-LHR (old, slow)', 30), run('AMM-LHR (new, fast)', 5)])
+    assert.deepEqual(shown, ['AMM-LHR (new, fast)'])
+  })
+
+  it('keeps the data mode label of each answer (DEMO, TEST, LIVE)', () => {
+    assert.equal(sanitizeFlightAnswer(DEMO).dataMode, 'DEMO')
+    for (const mode of ['TEST', 'LIVE']) {
+      assert.equal(sanitizeFlightAnswer({ ...DEMO, data_mode: mode, offers: [] }).dataMode, mode)
+    }
   })
 })

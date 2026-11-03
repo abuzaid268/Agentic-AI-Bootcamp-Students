@@ -4,7 +4,8 @@ import { AirportSearch } from '../airports/index.js'
 import FlightOfferCard, { DataModeBadge } from './FlightOfferCard.jsx'
 import { fetchFlightStatus, isFlightsUnavailable, searchFlights } from './flightsApi.js'
 import {
-  CABIN_CLASSES, DATA_MODES, MAX_ADULTS, MODE_STYLES, cheapestByCurrency, isoToday, sortOffers, validateFlightForm,
+  CABIN_CLASSES, DATA_MODES, MAX_ADULTS, MODE_STYLES, cheapestByCurrency, isoToday, latestOnly, resultState, searchKey,
+  sortOffers, validateFlightForm,
 } from './flightState.js'
 
 const FIELD_FOR_SERVER = {
@@ -41,7 +42,11 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
   const [failure, setFailure] = useState(null)
   const [order, setOrder] = useState('price-asc')
   const [serverStatus, setServerStatus] = useState(null) // from GET /api/flights/status, null until known
+  const [resultKey, setResultKey] = useState(null) // the search the answer or error on screen belongs to
   const pending = useRef(null)
+  const searches = useRef(latestOnly())
+
+  useEffect(() => () => pending.current?.abort(), []) // no answer lands after the form is gone
 
   useEffect(() => {
     const controller = new AbortController()
@@ -51,6 +56,8 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
     return () => controller.abort()
   }, [fetchImpl])
 
+  const currentKey = searchKey({ origin, destination, departureDate, returnDate, roundTrip, adults, cabinClass })
+  const shown = resultState(status, resultKey, currentKey) // 'stale' once the form no longer matches the results
   const unavailable = serverStatus?.available === false || (status === 'error' && isFlightsUnavailable(failure))
 
   const run = async () => {
@@ -61,6 +68,9 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
     pending.current?.abort()
     const controller = new AbortController()
     pending.current = controller
+    const ticket = searches.current.start()
+    setResultKey(currentKey)
+    setAnswer(null)
     setStatus('loading')
     setFailure(null)
     try {
@@ -68,10 +78,11 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
         origin: origin.iata, destination: destination.iata, departureDate,
         returnDate: roundTrip ? returnDate : '', adults, cabinClass,
       }, { signal: controller.signal, fetchImpl })
+      if (!searches.current.isCurrent(ticket)) return // a newer search replaced this one
       setAnswer(result)
       setStatus('ready')
     } catch (err) {
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted || !searches.current.isCurrent(ticket)) return
       setAnswer(null)
       setFailure(err)
       setStatus('error')
@@ -229,7 +240,13 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
           </p>
         )}
 
-        {status === 'error' && failure && !isFlightsUnavailable(failure) && (
+        {shown === 'stale' && (
+          <p role="status" className="rounded-2xl bg-[#f1f7f8] p-4 text-sm text-[#456774]">
+            Your search changed. Search again to see flights for it.
+          </p>
+        )}
+
+        {shown === 'error' && failure && !isFlightsUnavailable(failure) && (
           <div role="alert" className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
             <AlertTriangle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
             <div>
@@ -241,7 +258,7 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
           </div>
         )}
 
-        {status === 'ready' && answer && (
+        {shown === 'ready' && answer && (
           <>
             <div className={`rounded-2xl border p-4 text-sm ${MODE_STYLES[answer.dataMode]}`}>
               <p className="flex flex-wrap items-center gap-2 font-semibold">
