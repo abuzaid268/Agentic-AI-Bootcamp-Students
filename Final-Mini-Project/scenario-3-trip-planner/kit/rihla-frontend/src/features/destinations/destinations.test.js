@@ -3,7 +3,8 @@ import { describe, it } from 'node:test'
 
 import { DestinationSearchError, searchDestinations } from './destinationsApi.js'
 import {
-  moveHighlight, normalizeQuery, placeDetails, sanitizeDestination, shouldSearch, statusMessage,
+  MAX_DESTINATION_TEXT, destinationText, moveHighlight, normalizeQuery, placeDetails, sanitizeDestination, shouldSearch,
+  statusMessage,
 } from './searchState.js'
 
 // The backend's answer for "Pari" (app/destinations, from a recorded Open-Meteo response).
@@ -101,6 +102,12 @@ describe('searchDestinations', () => {
       err.code === 'not_available' && /not available on this server yet/.test(err.message) && err.retryable === false))
   })
 
+  it('says city search is unavailable (no licence decision in production) and does not offer a retry', async () => {
+    const body = { error: { code: 'destinations_unavailable', message: 'City search is not available on this service right now. You can still type the destination yourself.', retryable: false } }
+    await assert.rejects(searchDestinations('Pari', { fetchImpl: fakeFetch(503, body).impl }), (err) => (
+      err.code === 'destinations_unavailable' && err.retryable === false && /type the destination yourself/.test(err.message)))
+  })
+
   it('explains a rate limit and an unreadable error page', async () => {
     await assert.rejects(searchDestinations('Pari', { fetchImpl: fakeFetch(429, null, { json: false }).impl }),
       (err) => /Too many city searches/.test(err.message) && err.retryable === true)
@@ -135,5 +142,21 @@ describe('what the traveller sees and hears', () => {
     assert.match(statusMessage({ status: 'ready', count: 0, searchable: true }), /No cities found/)
     assert.equal(statusMessage({ status: 'error', error: 'Down.' }), 'Down.')
     assert.equal(statusMessage({ status: 'ready', count: 2, searchable: false }), '') // after choosing a city
+  })
+})
+
+describe('the text a chosen city puts in the trip form', () => {
+  it('is the full label when it fits', () => {
+    assert.equal(destinationText(sanitizeDestination(PARIS_TX)), 'Paris, Texas, United States')
+  })
+
+  it('never exceeds the trip form\'s 100-character limit (tripForm.js), shortest form last', () => {
+    const region = 'R'.repeat(95)
+    const long = sanitizeDestination({ ...PARIS, region, label: `Paris, ${region}, France` })
+    assert.ok(long.label.length > MAX_DESTINATION_TEXT)
+    assert.equal(destinationText(long), 'Paris, France')
+    const longName = 'N'.repeat(120)
+    assert.equal(destinationText({ name: longName, country: 'France', label: `${longName}, France` }).length,
+      MAX_DESTINATION_TEXT)
   })
 })

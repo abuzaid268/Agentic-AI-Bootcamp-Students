@@ -1,0 +1,561 @@
+{
+  "id": "WHATIF-C-rain-2026-11-03",
+  "priority": "normal",
+  "data_basis": {
+    "places": "Real Wikivoyage listings as recorded in the kit's replay cache (services/cache/wikivoyage, read with TRAVEL_MODE=replay): ids, names, opening hours, prices and links are as recorded, last_edit as listed.",
+    "prices": "estimated_cost = the listed price for a foreign adult (Pera Museum 20 TL, not the 10 TL concession; Dolmabahce Palace 1200 TL for foreigners, not the 170 TL domestic price) x the ECB reference rate of 2026-10-23 (TRY->USD 0.020105, EUR->USD 1.1193, kit /api/fx in replay), rounded to the cent. Estimates, as the README asks. A place with no listed price has estimated_cost null (unknown).",
+    "travel_minutes": "FIXTURE ASSUMPTION, not from a routing service: straight-line distance x 1.3 at 4.5 km/h, rounded up to 5 minutes (at least 5).",
+    "event": "HYPOTHETICAL. Nothing in these fixtures claims that the event really happened."
+  },
+  "places": [
+    {
+      "place_id": "wv-istanbul-hagia-sophia",
+      "name": "Hagia Sophia",
+      "district": "Historical Peninsula",
+      "hours_raw": "24 hours",
+      "weekly": {
+        "Mon": [
+          "00:00-24:00"
+        ],
+        "Tue": [
+          "00:00-24:00"
+        ],
+        "Wed": [
+          "00:00-24:00"
+        ],
+        "Thu": [
+          "00:00-24:00"
+        ],
+        "Fri": [
+          "00:00-24:00"
+        ],
+        "Sat": [
+          "00:00-24:00"
+        ],
+        "Sun": [
+          "00:00-24:00"
+        ]
+      },
+      "price_raw": "Adult €25",
+      "price_currency": "EUR",
+      "price_min": 25,
+      "lat": 41.0085,
+      "lon": 28.9799,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+      "last_edit": "2025-02-13"
+    },
+    {
+      "place_id": "wv-istanbul-basilica-cistern",
+      "name": "Basilica Cistern",
+      "district": "Historical Peninsula",
+      "hours_raw": "Daily 09:00-18:30, 19:30-22:00",
+      "weekly": {
+        "Mon": [
+          "09:00-18:30",
+          "19:30-22:00"
+        ],
+        "Tue": [
+          "09:00-18:30",
+          "19:30-22:00"
+        ],
+        "Wed": [
+          "09:00-18:30",
+          "19:30-22:00"
+        ],
+        "Thu": [
+          "09:00-18:30",
+          "19:30-22:00"
+        ],
+        "Fri": [
+          "09:00-18:30",
+          "19:30-22:00"
+        ],
+        "Sat": [
+          "09:00-18:30",
+          "19:30-22:00"
+        ],
+        "Sun": [
+          "09:00-18:30",
+          "19:30-22:00"
+        ]
+      },
+      "price_raw": "Adult 09:00-18:30 1500 TL (23€); 19:30-22:00 2400 TL (47€)",
+      "price_currency": "TRY",
+      "price_min": 1500,
+      "lat": 41.0081,
+      "lon": 28.9778,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+      "last_edit": "2025-12-21"
+    },
+    {
+      "place_id": "wv-istanbul-museum-of-archaeology",
+      "name": "Museum of Archaeology",
+      "district": "Historical Peninsula",
+      "hours_raw": "Daily 09:00-17:30. The Tiled Kiosk and the Museum of Oriental Art are closed as of October 2025",
+      "weekly": {
+        "Mon": [
+          "09:00-17:30"
+        ],
+        "Tue": [
+          "09:00-17:30"
+        ],
+        "Wed": [
+          "09:00-17:30"
+        ],
+        "Thu": [
+          "09:00-17:30"
+        ],
+        "Fri": [
+          "09:00-17:30"
+        ],
+        "Sat": [
+          "09:00-17:30"
+        ],
+        "Sun": [
+          "09:00-17:30"
+        ]
+      },
+      "price_raw": "Adult €15. Beware of the ticket office staff adding the audio guide to the ticket price without asking if you want it. It's not compulsory and you don't need it. Check the bill before paying!",
+      "price_currency": "EUR",
+      "price_min": 15,
+      "lat": 41.0107,
+      "lon": 28.9812,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+      "last_edit": "2025-10-22"
+    },
+    {
+      "place_id": "wv-istanbul-grand-bazaar",
+      "name": "Grand Bazaar",
+      "district": "Historical Peninsula",
+      "hours_raw": "Mon-Sat 09:00-19:00",
+      "weekly": {
+        "Mon": [
+          "09:00-19:00"
+        ],
+        "Tue": [
+          "09:00-19:00"
+        ],
+        "Wed": [
+          "09:00-19:00"
+        ],
+        "Thu": [
+          "09:00-19:00"
+        ],
+        "Fri": [
+          "09:00-19:00"
+        ],
+        "Sat": [
+          "09:00-19:00"
+        ]
+      },
+      "price_raw": null,
+      "price_currency": null,
+      "price_min": null,
+      "lat": 41.0106,
+      "lon": 28.9685,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#Buy",
+      "last_edit": "2025-02-14"
+    },
+    {
+      "place_id": "wv-istanbul-galata-tower",
+      "name": "Galata Tower",
+      "district": "Galata",
+      "hours_raw": "Daily 08:30-23:00 (last entry at 22:00)",
+      "weekly": {
+        "Mon": [
+          "08:30-23:00"
+        ],
+        "Tue": [
+          "08:30-23:00"
+        ],
+        "Wed": [
+          "08:30-23:00"
+        ],
+        "Thu": [
+          "08:30-23:00"
+        ],
+        "Fri": [
+          "08:30-23:00"
+        ],
+        "Sat": [
+          "08:30-23:00"
+        ],
+        "Sun": [
+          "08:30-23:00"
+        ]
+      },
+      "price_raw": "650 TL",
+      "price_currency": "TRY",
+      "price_min": 650,
+      "lat": 41.025556,
+      "lon": 28.974167,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Galata#See",
+      "last_edit": "2023-08-29"
+    },
+    {
+      "place_id": "wv-istanbul-pera-museum",
+      "name": "Pera Museum",
+      "district": "Galata",
+      "hours_raw": "Tue-Sun 10:00-19:00, Sun 12:00-18:00",
+      "weekly": {
+        "Tue": [
+          "10:00-19:00"
+        ],
+        "Wed": [
+          "10:00-19:00"
+        ],
+        "Thu": [
+          "10:00-19:00"
+        ],
+        "Fri": [
+          "10:00-19:00"
+        ],
+        "Sat": [
+          "10:00-19:00"
+        ],
+        "Sun": [
+          "12:00-18:00"
+        ]
+      },
+      "price_raw": "20 TL, concession 10 TL, free on Fridays 18:00–22:00, students free on Wednesdays",
+      "price_currency": "TRY",
+      "price_min": 10,
+      "lat": 41.031833,
+      "lon": 28.975139,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Galata#See",
+      "last_edit": "2019-02-16"
+    },
+    {
+      "place_id": "wv-istanbul-topkapi-palace",
+      "name": "Topkapı Palace",
+      "district": "Historical Peninsula",
+      "hours_raw": "Wed-Mon 09:00-17:00",
+      "weekly": {
+        "Mon": [
+          "09:00-17:00"
+        ],
+        "Wed": [
+          "09:00-17:00"
+        ],
+        "Thu": [
+          "09:00-17:00"
+        ],
+        "Fri": [
+          "09:00-17:00"
+        ],
+        "Sat": [
+          "09:00-17:00"
+        ],
+        "Sun": [
+          "09:00-17:00"
+        ]
+      },
+      "price_raw": "Adult 2750 TL (combi for Palace, Harem and Hagia Irene)",
+      "price_currency": "TRY",
+      "price_min": 2750,
+      "lat": 41.013,
+      "lon": 28.984,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+      "last_edit": "2025-02-13"
+    },
+    {
+      "place_id": "wv-istanbul-dolmabahce-palace",
+      "name": "Dolmabahce Palace",
+      "district": "European Bosphorus",
+      "hours_raw": "Tue-Sun 09:00-17:00",
+      "weekly": {
+        "Tue": [
+          "09:00-17:00"
+        ],
+        "Wed": [
+          "09:00-17:00"
+        ],
+        "Thu": [
+          "09:00-17:00"
+        ],
+        "Fri": [
+          "09:00-17:00"
+        ],
+        "Sat": [
+          "09:00-17:00"
+        ],
+        "Sun": [
+          "09:00-17:00"
+        ]
+      },
+      "price_raw": "Foreigners pay 1200 TL for Selamlık + Harem + Painting Museum, Domestic Visitors 170 TL, Müzeumkart not accepted",
+      "price_currency": "TRY",
+      "price_min": 170,
+      "lat": 41.039444,
+      "lon": 29.001667,
+      "source_url": "https://en.wikivoyage.org/wiki/Istanbul/European_Bosphorus#See",
+      "last_edit": "2024-10-23"
+    }
+  ],
+  "travel_minutes": {
+    "wv-istanbul-hagia-sophia|wv-istanbul-basilica-cistern": 5,
+    "wv-istanbul-hagia-sophia|wv-istanbul-museum-of-archaeology": 5,
+    "wv-istanbul-hagia-sophia|wv-istanbul-grand-bazaar": 20,
+    "wv-istanbul-hagia-sophia|wv-istanbul-galata-tower": 35,
+    "wv-istanbul-hagia-sophia|wv-istanbul-pera-museum": 50,
+    "wv-istanbul-hagia-sophia|wv-istanbul-topkapi-palace": 15,
+    "wv-istanbul-hagia-sophia|wv-istanbul-dolmabahce-palace": 70,
+    "wv-istanbul-basilica-cistern|wv-istanbul-hagia-sophia": 5,
+    "wv-istanbul-basilica-cistern|wv-istanbul-museum-of-archaeology": 10,
+    "wv-istanbul-basilica-cistern|wv-istanbul-grand-bazaar": 15,
+    "wv-istanbul-basilica-cistern|wv-istanbul-galata-tower": 35,
+    "wv-istanbul-basilica-cistern|wv-istanbul-pera-museum": 50,
+    "wv-istanbul-basilica-cistern|wv-istanbul-topkapi-palace": 15,
+    "wv-istanbul-basilica-cistern|wv-istanbul-dolmabahce-palace": 70,
+    "wv-istanbul-museum-of-archaeology|wv-istanbul-hagia-sophia": 5,
+    "wv-istanbul-museum-of-archaeology|wv-istanbul-basilica-cistern": 10,
+    "wv-istanbul-museum-of-archaeology|wv-istanbul-grand-bazaar": 20,
+    "wv-istanbul-museum-of-archaeology|wv-istanbul-galata-tower": 35,
+    "wv-istanbul-museum-of-archaeology|wv-istanbul-pera-museum": 45,
+    "wv-istanbul-museum-of-archaeology|wv-istanbul-topkapi-palace": 10,
+    "wv-istanbul-museum-of-archaeology|wv-istanbul-dolmabahce-palace": 65,
+    "wv-istanbul-grand-bazaar|wv-istanbul-hagia-sophia": 20,
+    "wv-istanbul-grand-bazaar|wv-istanbul-basilica-cistern": 15,
+    "wv-istanbul-grand-bazaar|wv-istanbul-museum-of-archaeology": 20,
+    "wv-istanbul-grand-bazaar|wv-istanbul-galata-tower": 30,
+    "wv-istanbul-grand-bazaar|wv-istanbul-pera-museum": 45,
+    "wv-istanbul-grand-bazaar|wv-istanbul-topkapi-palace": 25,
+    "wv-istanbul-grand-bazaar|wv-istanbul-dolmabahce-palace": 75,
+    "wv-istanbul-galata-tower|wv-istanbul-hagia-sophia": 35,
+    "wv-istanbul-galata-tower|wv-istanbul-basilica-cistern": 35,
+    "wv-istanbul-galata-tower|wv-istanbul-museum-of-archaeology": 35,
+    "wv-istanbul-galata-tower|wv-istanbul-grand-bazaar": 30,
+    "wv-istanbul-galata-tower|wv-istanbul-pera-museum": 15,
+    "wv-istanbul-galata-tower|wv-istanbul-topkapi-palace": 30,
+    "wv-istanbul-galata-tower|wv-istanbul-dolmabahce-palace": 50,
+    "wv-istanbul-pera-museum|wv-istanbul-hagia-sophia": 50,
+    "wv-istanbul-pera-museum|wv-istanbul-basilica-cistern": 50,
+    "wv-istanbul-pera-museum|wv-istanbul-museum-of-archaeology": 45,
+    "wv-istanbul-pera-museum|wv-istanbul-grand-bazaar": 45,
+    "wv-istanbul-pera-museum|wv-istanbul-galata-tower": 15,
+    "wv-istanbul-pera-museum|wv-istanbul-topkapi-palace": 40,
+    "wv-istanbul-pera-museum|wv-istanbul-dolmabahce-palace": 45,
+    "wv-istanbul-topkapi-palace|wv-istanbul-hagia-sophia": 15,
+    "wv-istanbul-topkapi-palace|wv-istanbul-basilica-cistern": 15,
+    "wv-istanbul-topkapi-palace|wv-istanbul-museum-of-archaeology": 10,
+    "wv-istanbul-topkapi-palace|wv-istanbul-grand-bazaar": 25,
+    "wv-istanbul-topkapi-palace|wv-istanbul-galata-tower": 30,
+    "wv-istanbul-topkapi-palace|wv-istanbul-pera-museum": 40,
+    "wv-istanbul-topkapi-palace|wv-istanbul-dolmabahce-palace": 60,
+    "wv-istanbul-dolmabahce-palace|wv-istanbul-hagia-sophia": 70,
+    "wv-istanbul-dolmabahce-palace|wv-istanbul-basilica-cistern": 70,
+    "wv-istanbul-dolmabahce-palace|wv-istanbul-museum-of-archaeology": 65,
+    "wv-istanbul-dolmabahce-palace|wv-istanbul-grand-bazaar": 75,
+    "wv-istanbul-dolmabahce-palace|wv-istanbul-galata-tower": 50,
+    "wv-istanbul-dolmabahce-palace|wv-istanbul-pera-museum": 45,
+    "wv-istanbul-dolmabahce-palace|wv-istanbul-topkapi-palace": 60
+  },
+  "original_itinerary": {
+    "destination": "Istanbul",
+    "currency": "USD",
+    "travellers": 1,
+    "budget_total": 230,
+    "estimated_total": 167.82,
+    "days": [
+      {
+        "date": "2026-11-02",
+        "activities": [
+          {
+            "place_id": "wv-istanbul-hagia-sophia",
+            "name": "Hagia Sophia",
+            "start_time": "09:00",
+            "end_time": "10:30",
+            "estimated_cost": 27.98,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+            "notes": "Adult €25 (Wikivoyage), converted with the ECB reference rate of 2026-10-23: estimate"
+          },
+          {
+            "place_id": "wv-istanbul-basilica-cistern",
+            "name": "Basilica Cistern",
+            "start_time": "11:00",
+            "end_time": "12:00",
+            "estimated_cost": 30.16,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+            "notes": "Adult 09:00-18:30 1500 TL (23€); 19:30-22:00 2400 TL (47€) (Wikivoyage), converted with the ECB reference rate of 2026-10-23: estimate"
+          },
+          {
+            "place_id": "wv-istanbul-museum-of-archaeology",
+            "name": "Museum of Archaeology",
+            "start_time": "13:30",
+            "end_time": "15:00",
+            "estimated_cost": 16.79,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+            "notes": "Adult €15. Beware of the ticket office staff adding the audio guide to the ticket price without asking if you want it. It's not compulsory and you don't need it. Check the bill before paying! (Wikivoyage), converted with the ECB reference rate of 2026-10-23: estimate"
+          },
+          {
+            "place_id": "wv-istanbul-grand-bazaar",
+            "name": "Grand Bazaar",
+            "start_time": "15:30",
+            "end_time": "17:00",
+            "estimated_cost": null,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#Buy",
+            "notes": "No price is listed: unknown, not counted as free"
+          }
+        ]
+      },
+      {
+        "date": "2026-11-03",
+        "activities": [
+          {
+            "place_id": "wv-istanbul-galata-tower",
+            "name": "Galata Tower",
+            "start_time": "10:00",
+            "end_time": "11:00",
+            "estimated_cost": 13.07,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Galata#See",
+            "notes": "650 TL (Wikivoyage), converted with the ECB reference rate of 2026-10-23: estimate"
+          },
+          {
+            "place_id": "wv-istanbul-pera-museum",
+            "name": "Pera Museum",
+            "start_time": "11:45",
+            "end_time": "13:15",
+            "estimated_cost": 0.4,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Galata#See",
+            "notes": "20 TL, concession 10 TL, free on Fridays 18:00–22:00, students free on Wednesdays (Wikivoyage), converted with the ECB reference rate of 2026-10-23: estimate"
+          }
+        ]
+      },
+      {
+        "date": "2026-11-04",
+        "activities": [
+          {
+            "place_id": "wv-istanbul-topkapi-palace",
+            "name": "Topkapı Palace",
+            "start_time": "09:00",
+            "end_time": "12:00",
+            "estimated_cost": 55.29,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/Historical_Peninsula#See",
+            "notes": "Adult 2750 TL (combi for Palace, Harem and Hagia Irene) (Wikivoyage), converted with the ECB reference rate of 2026-10-23: estimate"
+          },
+          {
+            "place_id": "wv-istanbul-dolmabahce-palace",
+            "name": "Dolmabahce Palace",
+            "start_time": "14:00",
+            "end_time": "16:00",
+            "estimated_cost": 24.13,
+            "source_url": "https://en.wikivoyage.org/wiki/Istanbul/European_Bosphorus#See",
+            "notes": "Foreigners pay 1200 TL for Selamlık + Harem + Painting Museum, Domestic Visitors 170 TL, Müzeumkart not accepted (Wikivoyage), converted with the ECB reference rate of 2026-10-23: estimate"
+          }
+        ]
+      }
+    ]
+  },
+  "constraints": {
+    "day_start": "09:00",
+    "day_end": "21:00",
+    "currency": "USD",
+    "travellers": 1,
+    "constraint_basis": "day_start and day_end are FIXTURE ASSUMPTIONS standing in for the plan's rules (PlanState.rules in Member 1's code)."
+  },
+  "approval": {
+    "requires_user_approval": true,
+    "preview_changes_plan": false,
+    "preview_saves": false,
+    "apply_saves": false,
+    "rule": "A preview never changes or saves the plan; applying a proposal makes it the session's plan, which then needs the usual save_trip approval (POST /api/approve)."
+  },
+  "scenario": {
+    "type": "rain",
+    "date": "2026-11-03"
+  },
+  "trigger": {
+    "kind": "rain",
+    "description": "What if it rained on 2026-11-03?",
+    "hypothetical": true
+  },
+  "weather_inputs": {
+    "simulated": {
+      "result": {
+        "ok": true,
+        "kind": "forecast",
+        "mode": "simulated",
+        "stale": false,
+        "data_status": "SIMULATED",
+        "source": "Simulated for a WHAT IF fixture",
+        "note": "Made-up rain for this fixture: not a forecast and not an observation.",
+        "days": [
+          {
+            "date": "2026-11-02",
+            "precip_mm": 0.0,
+            "precip_probability_pct": 10
+          },
+          {
+            "date": "2026-11-03",
+            "precip_mm": 7.5,
+            "precip_probability_pct": 90
+          },
+          {
+            "date": "2026-11-04",
+            "precip_mm": 0.2,
+            "precip_probability_pct": 20
+          }
+        ]
+      },
+      "expected_live": false,
+      "why": "Simulated weather never confirms rain: the scenario stays hypothetical."
+    },
+    "recorded": {
+      "result": {
+        "ok": true,
+        "kind": "forecast",
+        "mode": "replay",
+        "stale": false,
+        "data_status": null,
+        "source": "Open-Meteo forecast API (recorded copy)",
+        "note": "Same values, labelled as a recorded (replayed) forecast.",
+        "days": [
+          {
+            "date": "2026-11-02",
+            "precip_mm": 0.0,
+            "precip_probability_pct": 10
+          },
+          {
+            "date": "2026-11-03",
+            "precip_mm": 7.5,
+            "precip_probability_pct": 90
+          },
+          {
+            "date": "2026-11-04",
+            "precip_mm": 0.2,
+            "precip_probability_pct": 20
+          }
+        ]
+      },
+      "expected_live": false,
+      "why": "A replayed forecast is not live (freshness_of: recorded)."
+    }
+  },
+  "outdoor_place_ids": [
+    "wv-istanbul-galata-tower"
+  ],
+  "outdoor_basis": "FIXTURE ASSUMPTION matching Member 1's tests (planning/setting.py calls Galata Tower 'outdoor': a viewpoint tower). At run time planning/setting.py decides, not this file.",
+  "expected": {
+    "outcome_one_of": [
+      "revised",
+      "not_feasible"
+    ],
+    "if_revised": {
+      "absent_on": {
+        "2026-11-03": [
+          "wv-istanbul-galata-tower"
+        ]
+      },
+      "unchanged_dates": [
+        "2026-11-02",
+        "2026-11-04"
+      ],
+      "same_dates": true
+    },
+    "never": [
+      "claim that it will rain, unless a live forecast says so",
+      "change another day",
+      "save without approval"
+    ]
+  }
+}

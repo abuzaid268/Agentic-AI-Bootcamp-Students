@@ -10,7 +10,8 @@ two small handoffs, at the end of this file.
 | `install_destinations(app)` | `app/destinations/__init__.py` |
 | React component | `rihla-frontend/src/features/destinations/DestinationSearch.jsx` |
 | API client and pure helpers | `rihla-frontend/src/features/destinations/destinationsApi.js`, `searchState.js` |
-| Tests | `tests/test_destinations.py` (49), `rihla-frontend/src/features/destinations/destinations.test.js` (29) |
+| Tests | `tests/test_destinations.py` (58), `rihla-frontend/src/features/destinations/destinations.test.js` (16) |
+| Open-Meteo licence decision, shared with weather | `app/open_meteo.py` |
 | Recorded provider answer used by the tests | `tests/fixtures/open_meteo_geocoding_pari.json` |
 
 ## Provider
@@ -23,7 +24,29 @@ needs no key, and is made for search as you type:
 
 Every result has a stable GeoNames id, coordinates, country, region, population and time zone. Licence: CC BY 4.0.
 The component shows the attribution ("City data: GeoNames (CC BY 4.0) via Open-Meteo") and every API answer carries
-`source`. Open-Meteo's free service is for non-commercial use; check its terms before any commercial deployment.
+`source`.
+
+**Licence and production.** These terms were checked on 2026-11-03 at https://open-meteo.com/en/terms and
+https://open-meteo.com/en/docs/geocoding-api.
+
+What the terms say:
+- Open-Meteo's free API is for **non-commercial use only**.
+- Commercial use needs a paid plan, whose `apikey` goes to the `customer-` server
+  (`https://customer-geocoding-api.open-meteo.com/v1/search`).
+- The price isn't published on the page.
+
+A public deployment is not automatically non-commercial, so **production calls Open-Meteo only after an explicit
+decision**. It is the same decision as for weather, and lives in `app/open_meteo.py`:
+
+| Environment | City search |
+|---|---|
+| `development` or `test` | The free API |
+| `production` with `RIHLA_OPEN_METEO_API_KEY` | The customer server, with the key |
+| `production` with `RIHLA_OPEN_METEO_NONCOMMERCIAL=true` | The free API (the team states the deployment is non-commercial) |
+| `production` with neither | **The provider is never called.** Every search answers `503 destinations_unavailable`: "City search is not available on this service right now. You can still type the destination yourself." The component shows that message, and the traveller can still type. |
+
+**Keeping the key secret:** it is never in an answer or in `repr`, and it is redacted from httpx's request logs.
+Tests check all of this.
 
 **Why not the kit's `geocode` tool?**
 - It calls Nominatim, which is an exact single-place lookup, not a prefix search.
@@ -80,6 +103,7 @@ Errors: `{"error": {"code", "message", "retryable", "retry_after"?}}`
 
 | Status | `code` | When |
 |---|---|---|
+| 503 | `destinations_unavailable` | Production without the Open-Meteo licence decision (see above). Checked before anything else, and not retryable. |
 | 422 | `missing_query`, `query_too_short`, `invalid_query`, `query_too_long` | empty, 1 character, no letters or control characters, over 80 characters; the provider is not called |
 | 422 | FastAPI validation | `limit` outside 1–10, `lang` not 2 letters |
 | 429 | `rate_limited` | this server's provider-call cap was reached (header `Retry-After`) |
@@ -105,8 +129,12 @@ cancels an outdated request.
 | `RIHLA_DESTINATIONS_TIMEOUT_S` | `4` | 0.5–30 |
 | `RIHLA_DESTINATIONS_MAX_PER_MINUTE` | `60` | 1–600 |
 | `TRAVEL_CONTACT` | — | already used by the kit; added to the User-Agent when set |
+| `RIHLA_ENV` | `development` | `production` turns on the licence gate (`docker-compose.prod.yml` sets it) |
+| `RIHLA_OPEN_METEO_API_KEY` | — | Secret. A paid plan's key: commercial use, customer server. |
+| `RIHLA_OPEN_METEO_NONCOMMERCIAL` | — | `true` lets production use the free API for a non-commercial deployment |
 
-All are optional. No key is needed.
+No key is needed in development. `GET /api/destinations/status` says whether search is available here, and why
+not.
 
 ## Component
 
@@ -117,7 +145,7 @@ import { DestinationSearch } from './features/destinations'
   label="Destination"
   tone="dark"                         // "dark" for the home page's glass form, "light" for white panels
   defaultValue={destination}
-  onTextChange={setDestination}       // every change of the text, and the chosen city's label
+  onTextChange={setDestination}       // every change of the text, and the chosen city's label (at most 100 characters)
   onSelect={setDestinationPlace}      // the chosen city object, or null when the text changes again
   required
 />
@@ -133,6 +161,8 @@ import { DestinationSearch } from './features/destinations'
 - ↓ and ↑ move through the list, and it wraps around; Home and End jump to the ends.
 - Enter chooses the highlighted city. With no list open, Enter submits the form as usual.
 - Esc closes the list; Tab moves on.
+
+**Keeping the parent in step (for whoever places it).** The box keeps its own text after it mounts: `defaultValue` is read once, like an uncontrolled `<input>`. Every change reaches the parent through `onTextChange` and `onSelect`, and `onSelect(null)` means the text no longer names a chosen place. A parent that resets or replaces the value from outside (for example clearing the form, or loading another trip) must remount the box with a new `key`, e.g. `<DestinationSearch key={formVersion} defaultValue={destination} … />`. Changing `defaultValue` alone does not change the text. `App.jsx` on `main` (2026-11-03) sets the destination only from the input, so it needs nothing more today.
 
 **Errors.** A retryable error shows "Try again". If the backend does not have the route yet (404), the box says city
 search is not available, and the traveller can still type the destination.

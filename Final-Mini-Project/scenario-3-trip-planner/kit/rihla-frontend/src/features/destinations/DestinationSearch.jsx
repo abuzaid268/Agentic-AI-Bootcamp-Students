@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 import { MapPin, X } from 'lucide-react'
 import { searchDestinations } from './destinationsApi.js'
-import { moveHighlight, placeDetails, shouldSearch, statusMessage } from './searchState.js'
+import { destinationText, moveHighlight, placeDetails, shouldSearch, statusMessage } from './searchState.js'
 
 // Two looks: "dark" for the home page's glass form, "light" for white panels.
 const TONES = {
@@ -31,7 +31,8 @@ const TONES = {
  * Props:
  *  - label, placeholder, name, required, disabled, id
  *  - defaultValue: the starting text (the component keeps its own text after that)
- *  - onTextChange(text): every change of the typed text (also when a city is chosen: its label)
+ *  - onTextChange(text): every change of the typed text (also when a city is chosen: its label, shortened to
+ *    100 characters when needed, the trip form's limit)
  *  - onSelect(destination | null): the chosen city { id, name, region, country, countryCode, latitude,
  *    longitude, timezone, label, ... }, or null as soon as the text no longer matches a chosen city
  *  - debounceMs (300), limit (8), tone ("dark" | "light"), fetchImpl (tests)
@@ -67,7 +68,7 @@ export default function DestinationSearch({
   const [highlight, setHighlight] = useState(-1)
   const [attempt, setAttempt] = useState(0) // bumped by "Try again"
 
-  const searchable = shouldSearch(text) && !(selected && selected.label === text)
+  const searchable = shouldSearch(text) && !(selected && destinationText(selected) === text)
 
   useEffect(() => {
     if (!searchable) return undefined
@@ -116,11 +117,12 @@ export default function DestinationSearch({
   }
 
   const choose = (destination) => {
-    setText(destination.label)
+    const chosen = destinationText(destination)
+    setText(chosen)
     setSelected(destination)
     setOpen(false)
     setHighlight(-1)
-    onTextChange?.(destination.label)
+    onTextChange?.(chosen)
     onSelect?.(destination)
   }
 

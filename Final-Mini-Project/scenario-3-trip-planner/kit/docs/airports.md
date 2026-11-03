@@ -162,7 +162,7 @@ import { AirportSearch, routeError } from './features/airports'
 |---|---|
 | `kind` | `"departure"` or `"arrival"`. Sets the icon (PlaneTakeoff / PlaneLanding), the default label ("From" / "To") and the clear button's name. |
 | `label`, `placeholder`, `name`, `id`, `required`, `disabled` | The usual input settings |
-| `defaultValue` | The starting text |
+| `defaultValue` | The starting text, read once. To reset the box from outside, remount it with a new `key` (see "Keeping the parent in step" in `docs/destinations.md`). |
 | `onTextChange(text)` | Called on every change of the text, and with the chosen airport's label |
 | `onSelect(airport \| null)` | Called with the chosen airport, or `null` when the text changes again. The airport is `{ id, name, city, region, country, countryCode, iata, icao, latitude, longitude, type, scheduledService, label }`. |
 | `scheduledOnly` | Show only airports with scheduled service. Default `false`. |
