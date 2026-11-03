@@ -199,7 +199,7 @@ install_weather(app)
 
 **Verify:** `curl "http://localhost:8000/api/weather?latitude=31.95&longitude=35.91"` returns today's forecast for Amman with `"data_status": "LIVE"`.
 
-**For WHAT IF rain:** `app/whatif.py`, on the `backup/rihla-integration-wip` branch, reads the kit's `get_weather` by city. This service can supply the same rain information by coordinates, with no replay cache. The adapter for that is documented with the WHAT IF fixtures.
+**For WHAT IF rain:** `app/whatif.py`, on the `backup/rihla-integration-wip` branch, reads the kit's `get_weather` by city. This service can supply the same rain information by coordinates, with no replay cache, through `app/whatif_support/weather_adapter.py`. See `docs/whatif.md`.
 
 ### Member 2 (frontend owner): show the forecast
 
