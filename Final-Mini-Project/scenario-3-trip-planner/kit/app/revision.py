@@ -17,6 +17,7 @@ import time
 import uuid
 from typing import Any
 
+from app.contract import record_agent_tools
 from planning.revision_agent import _Run, make_decide
 from planning.user_revision import (Interpretation, PlanState, RevisionInfeasible, apply_revision, interpret)
 
@@ -93,7 +94,9 @@ def run_trip_revision(session: dict, user_request: str, trip_info: dict, *, base
     try:
         revised = apply_revision(user_request, state, interpretation, travel_lookup=travel_lookup, decide=decide)
     except RevisionInfeasible as exc:
+        record_agent_tools("revision", run.tool_calls)
         return _no_change("revision_not_feasible", str(exc), "not_feasible", state)
+    record_agent_tools("revision", run.tool_calls)
     timings = {"revision_edit_ms": round((time.perf_counter() - started) * 1000)}
 
     started = time.perf_counter()

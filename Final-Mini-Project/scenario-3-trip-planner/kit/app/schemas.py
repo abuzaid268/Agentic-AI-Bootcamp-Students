@@ -1,7 +1,7 @@
 import datetime as dt
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 # Longer trips are refused with a clear message, not planned badly. Measured on live Istanbul data (the city with the
 # most listings): 30 days took 255 s with sightseeing on all 30 days; 60 days took 202 s but only 49 of 60 days had
@@ -46,12 +46,22 @@ class ChatRequest(BaseModel):
     user: dict[str, Any] | None = None  # CONTRACT §1/§5: {"traveller_id": "TRV-101", "name": "..."}, optional
 
 
+class PendingAction(BaseModel):
+    """The public approval action from CONTRACT §2; implementation checks stay server-side."""
+    model_config = ConfigDict(extra="ignore")
+
+    action_id: str
+    type: Literal["create_booking", "cancel_booking", "create_ticket", "save_trip"]
+    summary: str
+    payload: dict[str, Any]
+
+
 class ChatResponse(BaseModel):
     # The API contract (common/CONTRACT.md §2)
     session_id: str
     reply: str = ""  # always present: plain text the traveller reads
     state: str | None = None  # where the workflow is now (the same value as status)
-    pending_action: dict[str, Any] | None = None  # {action_id, type, summary, payload} only when approvable
+    pending_action: PendingAction | None = None  # {action_id, type, summary, payload} only when approvable
     result: dict[str, Any] | None = None  # {"trip_id": "TRIP-…"} only after the Trip Store confirmed a save
     citations: list[dict[str, Any]] = Field(default_factory=list)  # [{id, title, url}]
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)  # [{tool, ok, ms, agent, via}]
@@ -111,9 +121,11 @@ class SessionRequest(BaseModel):
 
 
 class ApproveRequest(BaseModel):
-    session_id: str
-    action_id: str
-    approved: bool
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1)
+    action_id: str = Field(min_length=1)
+    approved: StrictBool
 
 
 class AcceptRequest(BaseModel):
