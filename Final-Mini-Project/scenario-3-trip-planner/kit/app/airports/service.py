@@ -76,6 +76,16 @@ def normalize_query(raw: Any) -> str:
     return text
 
 
+def normalize_country(raw: Any) -> str | None:
+    """An optional ISO 3166-1 alpha-2 country filter ("jo" -> "JO"), or None. Raises AirportError(422) if malformed."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    text = raw.strip().upper() if isinstance(raw, str) else ""
+    if not re.fullmatch(r"[A-Z]{2}", text):
+        raise AirportError(422, "invalid_country", "The country must be a 2-letter code, such as JO.")
+    return text
+
+
 def _fold(text: str) -> str:
     """Case- and accent-insensitive form, to compare names ("Zürich" == "zurich")."""
     return "".join(c for c in unicodedata.normalize("NFKD", text.casefold()) if not unicodedata.combining(c))
@@ -294,13 +304,27 @@ class AirportSearch:
         lists = sorted((self._by_prefix.get(t[:2], []) for t in long_tokens), key=len)
         return lists[0]
 
-    def search(self, raw_query: Any, *, limit: int = DEFAULT_LIMIT, scheduled_only: bool = False) -> dict:
+    def countries(self) -> dict:
+        """The countries that have an airport in the bundled data, by name: for a departure country picker."""
+        entries = self._load()
+        found: dict[str, dict] = {}
+        for entry in entries:
+            code, name = entry.airport["country_code"], entry.airport["country"]
+            if code and name:
+                item = found.setdefault(code, {"code": code, "name": name, "airports": 0})
+                item["airports"] += 1
+        countries = sorted(found.values(), key=lambda c: (_fold(c["name"]), c["code"]))
+        return {"count": len(countries), "countries": countries, "source": dict(self._source)}
+
+    def search(self, raw_query: Any, *, limit: int = DEFAULT_LIMIT, scheduled_only: bool = False,
+               country: Any = None) -> dict:
         query = normalize_query(raw_query)
+        country = normalize_country(country)
         limit = max(1, min(MAX_LIMIT, int(limit)))
         entries = self._load()
         tokens = _words(query)
         folded = " ".join(tokens)
-        key = (folded, limit, bool(scheduled_only))
+        key = (folded, limit, bool(scheduled_only), country)
         with self._lock:
             found = self._cache.get(key)
             if found is not None:
@@ -310,6 +334,8 @@ class AirportSearch:
             for index in self._candidates(tokens, len(entries)):
                 entry = entries[index]
                 if scheduled_only and not entry.airport["scheduled_service"]:
+                    continue
+                if country and entry.airport["country_code"] != country:
                     continue
                 score = _score(entry, folded, tokens) if tokens else None
                 if score is not None:

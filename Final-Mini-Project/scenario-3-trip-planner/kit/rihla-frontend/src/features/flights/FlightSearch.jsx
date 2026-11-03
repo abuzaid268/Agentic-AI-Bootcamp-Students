@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { AlertTriangle, Info, Search } from 'lucide-react'
-import { AirportSearch } from '../airports/index.js'
+import { AirportSearch, fetchAirportCountries } from '../airports/index.js'
 import FlightOfferCard, { DataModeBadge } from './FlightOfferCard.jsx'
 import { fetchFlightStatus, isFlightsUnavailable, searchFlights } from './flightsApi.js'
 import {
@@ -43,10 +43,27 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
   const [order, setOrder] = useState('price-asc')
   const [serverStatus, setServerStatus] = useState(null) // from GET /api/flights/status, null until known
   const [resultKey, setResultKey] = useState(null) // the search the answer or error on screen belongs to
+  const [countries, setCountries] = useState([]) // from GET /api/airports/countries; [] hides the picker
+  const [departureCountry, setDepartureCountry] = useState('') // '' = any country
   const pending = useRef(null)
   const searches = useRef(latestOnly())
 
   useEffect(() => () => pending.current?.abort(), []) // no answer lands after the form is gone
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchAirportCountries({ signal: controller.signal, fetchImpl: airportFetchImpl })
+      .then(setCountries)
+      .catch(() => {}) // aborted on unmount
+    return () => controller.abort()
+  }, [airportFetchImpl])
+
+  // A new departure country starts the departure airport over: the box is remounted empty (key) and searches
+  // only that country's airports.
+  const chooseDepartureCountry = (code) => {
+    setDepartureCountry(code)
+    setOrigin(null)
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -127,9 +144,32 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
           </fieldset>
         </div>
 
+        {countries.length > 0 && (
+          <div className="mt-5 max-w-sm">
+            <label htmlFor={`${ids}-country`} className={labelClass}>Departure country (optional)</label>
+            <select
+              id={`${ids}-country`}
+              value={departureCountry}
+              onChange={(e) => chooseDepartureCountry(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Any country</option>
+              {countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </div>
+        )}
+
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div>
-            <AirportSearch kind="departure" label="From" onSelect={setOrigin} fetchImpl={airportFetchImpl} required />
+            <AirportSearch
+              key={`from-${departureCountry}`}
+              kind="departure"
+              label="From"
+              country={departureCountry}
+              onSelect={setOrigin}
+              fetchImpl={airportFetchImpl}
+              required
+            />
             <FieldError id={describe('origin')} message={errors.origin} />
           </div>
           <div>

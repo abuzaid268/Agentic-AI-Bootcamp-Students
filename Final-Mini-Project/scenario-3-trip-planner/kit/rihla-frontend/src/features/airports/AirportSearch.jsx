@@ -42,6 +42,7 @@ const KINDS = {
  *    latitude, longitude, type, scheduledService, label }, or null as soon as the text no longer matches it.
  *    iata, icao and coordinates can be null: not every airport has them.
  *  - scheduledOnly (false): only airports OurAirports lists with scheduled service
+ *  - country (''): only airports in this country (ISO 3166-1 alpha-2, e.g. "JO"); '' means every country
  *  - debounceMs (300), limit (8), tone ("dark" | "light"), fetchImpl (tests)
  */
 export default function AirportSearch({
@@ -52,6 +53,7 @@ export default function AirportSearch({
   onTextChange,
   onSelect,
   scheduledOnly = false,
+  country = '',
   debounceMs = 300,
   limit = 8,
   tone = 'light',
@@ -89,7 +91,7 @@ export default function AirportSearch({
       setStatus('loading')
       setError('')
       try {
-        const answer = await searchAirports(text, { signal: controller.signal, limit, scheduledOnly, fetchImpl })
+        const answer = await searchAirports(text, { signal: controller.signal, limit, scheduledOnly, country, fetchImpl })
         setResults(answer.results)
         setAmbiguous(answer.ambiguous)
         setHighlight(answer.results.length ? 0 : -1)
@@ -106,7 +108,7 @@ export default function AirportSearch({
       clearTimeout(timer)
       controller.abort()
     }
-  }, [text, searchable, debounceMs, limit, scheduledOnly, fetchImpl, attempt])
+  }, [text, searchable, debounceMs, limit, scheduledOnly, country, fetchImpl, attempt])
 
   const reset = () => {
     setResults([])
