@@ -18,17 +18,17 @@ WHAT IF tries a hypothetical change on the plan on screen, previews it, and keep
 | Scenario validation and arithmetic | `app/whatif_support/scenarios.py` |
 | Result checks: budget, hours, overlaps, travel, unchanged days, no automatic save | `app/whatif_support/checks.py` |
 | Weather adapter for the rain scenario | `app/whatif_support/weather_adapter.py` |
-| Tests | `tests/test_whatif_support.py`: on this branch 58 passed and 1 skipped; combined with `main` (`6df209d`) all 59 pass, the compatibility test included (2026-11-03) |
+| Tests | `tests/test_whatif_support.py`: 59 passed on `main` after PR #16, the compatibility test with the real `forecast_rain` included (2026-11-03) |
 
 ## Integration status (2026-11-03)
 
 | What | Where it stands |
 |---|---|
 | Member 1's WHAT IF simulation (`app/whatif.py`, `/api/whatif`, `/api/whatif/apply`) and Member 2's `services/whatIf.js` | **Merged into `main`**: PR #15, `main` at `6df209d` |
-| This part (`app/whatif_support/`, the fixtures) | **On `feature/destinations-flights` only, not yet merged into `main`.** That branch was started from the older `main` (`3d9fd86`), so it doesn't contain `app/whatif.py` yet. |
-| Fixtures run through the real simulation, end to end | **Not done yet.** It needs the two branches combined, plus a `PlanState` built from each fixture (Member 1's test helpers). |
+| This part (`app/whatif_support/`, the fixtures) | **Merged into `main`**: PR #16 (merge commit `12513aa`) |
+| Fixtures run through the real simulation, end to end | **Not done yet.** It needs a `PlanState` built from each fixture (Member 1's test helpers) and the LLM-backed Revision Agent. |
 | `main`'s WHAT IF using this weather adapter | **Not wired.** It's optional: `main` reads the kit's `get_weather`. |
-| This branch combined with `main` (a throwaway copy, never pushed) | **Checked 2026-11-03:** no Git conflicts; backend 1400 passed, 10 skipped, 0 failed; frontend 237 passed, lint and build pass; `main`'s current `forecast_rain()` read this adapter as a live forecast with the right rainy dates, and answered `available: false` past 16 days. |
+| `main` after PR #16 | **Checked 2026-11-03:** backend 1418 passed, 10 skipped, 0 failed; frontend 246 passed, lint and build pass; the real `forecast_rain()` reads this adapter as a live forecast with the right rainy dates, and answers `available: false` past 16 days. |
 
 **What *was* verified:**
 - On 2026-11-03, the real `forecast_rain()` was run on this adapter's output, with four inputs.
@@ -43,7 +43,7 @@ The four inputs and their results:
   | Simulated weather | `live: false` |
   | A date past the forecast horizon | `available: false` |
 
-- The same check is in the tests. It **skips** on this branch, which has no `app/whatif.py`, and runs once this branch and `main` are combined.
+- The same check is in the tests, and runs on `main` (it skips only where `app/whatif.py` is absent).
 
 **The contract used** is the one in `main`'s `app/whatif.py`:
 
@@ -148,8 +148,7 @@ weather = forecast_rain(destination, dates, read_tool)          # Member 1's fun
 
 ### Member 1
 
-1. **After this branch is merged into `main`:** run `python -m pytest -q tests/test_whatif_support.py`. The skipped compatibility test then runs against the real function.
-2. **Optional, to get live rain:**
+1. **Optional, to get live rain:**
    - pass `read_tool=make_weather_read_tool(WeatherService(), lat, lon)` to `whatif.preview(...)`;
    - the coordinates: `main`'s session has no destination coordinates, but each researched place has `lat` and `lon`
      (`planning/research.py`). One option is the first place in `state.bundle.places` that has both; without one,

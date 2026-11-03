@@ -105,6 +105,16 @@ No LLM call was made; `travel-api` ran in replay mode.
 | Logs | no errors or tracebacks |
 | `docker compose down` | containers and network removed; no volumes |
 
+**Re-checked 2026-11-03 on `main` after PR #16 (`12513aa`):**
+- All three containers were healthy, and `:5173/`, `:5173/health`, `:8000/health` and `:8103/health` answered 200.
+- The MCP server started inside `app` (`geocode`, `find_attractions` answered).
+- Member 3's `/api/destinations`, `/api/airports`, `/api/flights` and `/api/weather` answer **404** in the running
+  app, because `app/main.py` doesn't install them yet (Member 1's handoff).
+- Served inside the `app` container on an internal port with the four routers installed, they answered over real
+  HTTP: cities with region and country, airports by city, code and country, labelled DEMO flights, and a LIVE then
+  CACHED Open-Meteo forecast. With `RIHLA_ENV=production` and no licence decision or flight provider, all three
+  answered 503.
+
 Not tested: a full trip (`/api/chat` with a valid request calls the paid LLM), Google sign-in (needs the Firebase settings), and `TRAVEL_MODE=live`.
 
 ## Useful commands

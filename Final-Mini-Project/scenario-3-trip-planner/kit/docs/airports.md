@@ -73,7 +73,13 @@ Left out: about 77,000 other rows, such as heliports, seaplane bases, balloon po
 
 ## API
 
-`GET /api/airports?q=<text>&limit=<1-10, default 8>&scheduled_only=<true|false, default false>`
+`GET /api/airports?q=<text>&limit=<1-10, default 8>&scheduled_only=<true|false, default false>&country=<2 letters, optional>`
+
+- `country` keeps only airports in that country (ISO 3166-1 alpha-2, any case: `jo` = `JO`). Empty means every
+  country. With it, "London" and `country=CA` gives London, Ontario (YXU), never Heathrow.
+- `GET /api/airports/countries` lists the countries in the bundled data, sorted by name:
+  `{"count", "countries": [{"code": "JO", "name": "Jordan", "airports": 6}, ...], "source"}`. The flight form's
+  optional **Departure country** picker uses it.
 
 - Read-only, and no sign-in is needed. The route is not in `app/auth/middleware.py` `PROTECTED_PREFIXES`.
 - `q` can be any of these:
@@ -131,7 +137,8 @@ Cache-Control: public, max-age=3600
 | Status | `code` | When |
 |---|---|---|
 | 422 | `missing_query`, `query_too_short`, `invalid_query`, `query_too_long` | The query is empty, 1 character long, has no letters or contains control characters, or is over 80 characters |
-| 422 | FastAPI validation | `limit` is outside 1–10, or `scheduled_only` is not a boolean |
+| 422 | `invalid_country` | `country` is not 2 letters |
+| 422 | FastAPI validation | `limit` is outside 1–10, `scheduled_only` is not a boolean, or `country` is longer than 2 characters |
 | 503 | `data_unavailable` | The bundled file is missing, has no rows, or lacks required columns. This is never an empty answer. The next search tries to load the file again. |
 
 ## Performance and limits
@@ -166,6 +173,7 @@ import { AirportSearch, routeError } from './features/airports'
 | `onTextChange(text)` | Called on every change of the text, and with the chosen airport's label |
 | `onSelect(airport \| null)` | Called with the chosen airport, or `null` when the text changes again. The airport is `{ id, name, city, region, country, countryCode, iata, icao, latitude, longitude, type, scheduledService, label }`. |
 | `scheduledOnly` | Show only airports with scheduled service. Default `false`. |
+| `country` | Show only airports in this country (`"JO"`). Default `''`, every country. |
 | `limit` | Number of results. Default 8. |
 | `debounceMs` | Wait after typing. Default 300. |
 | `tone` | `"dark"` or `"light"` |

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { AirportSearchError, searchAirports } from './airportsApi.js'
+import { AirportSearchError, fetchAirportCountries, searchAirports } from './airportsApi.js'
 import {
-  airportCode, airportDetails, moveHighlight, routeError, sanitizeAirport, shouldSearch, statusMessage,
+  airportCode, airportDetails, moveHighlight, routeError, sanitizeAirport, sanitizeCountries, shouldSearch,
+  statusMessage,
 } from './airportState.js'
 
 // The backend's answers (app/airports, from the bundled OurAirports data).
@@ -154,5 +155,38 @@ describe('what the traveller sees and hears', () => {
     assert.match(routeError(tlv, sanitizeAirport(TLV)), /same airport/)
     assert.equal(routeError(tlv, sanitizeAirport(LHR)), '')
     assert.equal(routeError(tlv, null), '') // nothing to compare yet
+  })
+})
+
+describe('departure country', () => {
+  const COUNTRIES = { count: 3, countries: [
+    { code: 'IL', name: 'Israel', airports: 12 }, { code: 'JO', name: 'Jordan', airports: 3 },
+    { code: 'gb', name: 'Lowercase code', airports: 1 }, { code: 'XX', name: '  ', airports: 1 },
+  ] }
+
+  it('sends a valid country code with the search, and nothing for "any country"', async () => {
+    const withCountry = fakeFetch(200, { query: 'amm', results: [] })
+    await searchAirports('amm', { country: 'JO', fetchImpl: withCountry.impl })
+    assert.match(withCountry.calls[0].url, /[?&]country=JO(&|$)/)
+    for (const country of ['', 'jo', 'JOR', undefined]) {
+      const plain = fakeFetch(200, { query: 'amm', results: [] })
+      await searchAirports('amm', { country, fetchImpl: plain.impl })
+      assert.doesNotMatch(plain.calls[0].url, /country=/, String(country))
+    }
+  })
+
+  it('reads the countries list and drops entries it cannot show honestly', async () => {
+    const { impl, calls } = fakeFetch(200, COUNTRIES)
+    assert.deepEqual(await fetchAirportCountries({ fetchImpl: impl }), [
+      { code: 'IL', name: 'Israel', airports: 12 }, { code: 'JO', name: 'Jordan', airports: 3 }])
+    assert.equal(calls[0].url, '/api/airports/countries')
+    assert.throws(() => sanitizeCountries({ countries: 'nope' }))
+  })
+
+  it('hides the picker (empty list) when the server cannot give countries', async () => {
+    assert.deepEqual(await fetchAirportCountries({ fetchImpl: fakeFetch(404, { detail: 'Not Found' }).impl }), [])
+    assert.deepEqual(await fetchAirportCountries({ fetchImpl: fakeFetch(200, { oops: true }).impl }), [])
+    const offline = async () => { throw new TypeError('Failed to fetch') }
+    assert.deepEqual(await fetchAirportCountries({ fetchImpl: offline }), [])
   })
 })
