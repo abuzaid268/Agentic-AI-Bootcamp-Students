@@ -1,0 +1,43 @@
+# Production overlay for a public deployment. From kit/, always together with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet   # check first
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+#
+# What it changes (see docs/deployment-readiness.md):
+# - RIHLA_ENV=production, written here literally: it cannot be left out, defaulted or overridden by .env, so the
+#   flight search never serves DEMO or TEST prices and Open-Meteo is used only after the licence decision;
+# - TRAVEL_API_KEY must be set (compose refuses an unset or empty one), and prod-guard refuses the kit's public
+#   development key: travel-api and app start only after prod-guard succeeds (python -m app.deployment_check);
+# - only the web port is published: the app (8000) and the travel API (8103) are reachable only inside Docker.
+# Requires Docker Compose 2.24 or newer (the !reset tag). It does not make Rihla production-ready on its own:
+# saved trips and sessions are still kept in memory (docs/deployment-readiness.md, blockers).
+services:
+  # One-shot start-up check, built from the app's image. Compose cannot compare values, so this refuses the known
+  # development key; it gets only TRAVEL_API_KEY (no env_file) and never prints it.
+  prod-guard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.deployment_check"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    environment:
+      TRAVEL_API_KEY: ${TRAVEL_API_KEY:?Set a private TRAVEL_API_KEY (not dev-key-change-me) for production}
+
+  travel-api:
+    ports: !reset []
+    environment:
+      TRAVEL_API_KEY: ${TRAVEL_API_KEY:?Set a private TRAVEL_API_KEY (not dev-key-change-me) for production}
+    depends_on:
+      prod-guard:
+        condition: service_completed_successfully
+
+  app:
+    ports: !reset []
+    depends_on:
+      prod-guard:
+        condition: service_completed_successfully
+    environment:
+      RIHLA_ENV: production
+      TRAVEL_API_KEY: ${TRAVEL_API_KEY:?Set a private TRAVEL_API_KEY (not dev-key-change-me) for production}
