@@ -29,6 +29,15 @@ export function placeDetails(destination) {
   return parts.filter(Boolean).join(', ')
 }
 
+// The text a chosen city puts in the box: its label, shortened when needed to fit the trip form's limit
+// (tripForm.js and the backend accept at most 100 characters): "name, country", then the name.
+export const MAX_DESTINATION_TEXT = 100
+
+export function destinationText(destination, max = MAX_DESTINATION_TEXT) {
+  const options = [destination.label, [destination.name, destination.country].filter(Boolean).join(', '), destination.name]
+  return options.find((text) => text && text.length <= max) || destination.name.slice(0, max)
+}
+
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value)
 const textOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null)
 

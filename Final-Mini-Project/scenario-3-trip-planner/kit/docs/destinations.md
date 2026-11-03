@@ -10,7 +10,7 @@ two small handoffs, at the end of this file.
 | `install_destinations(app)` | `app/destinations/__init__.py` |
 | React component | `rihla-frontend/src/features/destinations/DestinationSearch.jsx` |
 | API client and pure helpers | `rihla-frontend/src/features/destinations/destinationsApi.js`, `searchState.js` |
-| Tests | `tests/test_destinations.py` (58), `rihla-frontend/src/features/destinations/destinations.test.js` (14) |
+| Tests | `tests/test_destinations.py` (58), `rihla-frontend/src/features/destinations/destinations.test.js` (16) |
 | Open-Meteo licence decision, shared with weather | `app/open_meteo.py` |
 | Recorded provider answer used by the tests | `tests/fixtures/open_meteo_geocoding_pari.json` |
 
@@ -145,7 +145,7 @@ import { DestinationSearch } from './features/destinations'
   label="Destination"
   tone="dark"                         // "dark" for the home page's glass form, "light" for white panels
   defaultValue={destination}
-  onTextChange={setDestination}       // every change of the text, and the chosen city's label
+  onTextChange={setDestination}       // every change of the text, and the chosen city's label (at most 100 characters)
   onSelect={setDestinationPlace}      // the chosen city object, or null when the text changes again
   required
 />

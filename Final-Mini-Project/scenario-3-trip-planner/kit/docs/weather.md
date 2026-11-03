@@ -11,7 +11,7 @@ Real daily forecasts for any place, by coordinates. Owner: Member 3.
 | `install_weather(app)` | `app/weather/__init__.py` |
 | React component | `rihla-frontend/src/features/weather/WeatherSummary.jsx` |
 | API client and pure helpers | `rihla-frontend/src/features/weather/weatherApi.js`, `weatherState.js` |
-| Tests | `tests/test_weather.py` (46), `rihla-frontend/src/features/weather/weather.test.js` (9) |
+| Tests | `tests/test_weather.py` (46), `rihla-frontend/src/features/weather/weather.test.js` (10) |
 | Recorded real provider answer (Amman, 2026-11-03..05) | `tests/fixtures/open_meteo_forecast_amman.json` |
 
 ## How this differs from the kit's weather tool

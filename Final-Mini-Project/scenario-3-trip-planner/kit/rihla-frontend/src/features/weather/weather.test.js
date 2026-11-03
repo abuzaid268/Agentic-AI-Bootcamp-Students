@@ -93,8 +93,12 @@ describe('what the traveller sees and hears', () => {
   })
 
   it('picks an icon for each kind of weather', () => {
-    assert.deepEqual([0, 2, 45, 53, 63, 81, 73, 95].map(conditionIcon),
-      ['Sun', 'CloudSun', 'CloudFog', 'CloudDrizzle', 'CloudRain', 'CloudRain', 'CloudSnow', 'CloudLightning'])
+    assert.deepEqual([0, 2, 3, 45, 53, 63, 81, 73, 95].map(conditionIcon),
+      ['Sun', 'CloudSun', 'Cloud', 'CloudFog', 'CloudDrizzle', 'CloudRain', 'CloudRain', 'CloudSnow', 'CloudLightning'])
+  })
+
+  it('draws no sun for an overcast day (the recorded Amman days are all code 3)', () => {
+    assert.deepEqual(sanitizeWeather(AMMAN).days.map((d) => conditionIcon(d.weatherCode)), ['Cloud', 'Cloud', 'Cloud'])
   })
 
   it('reads a whole day out in one sentence', () => {
