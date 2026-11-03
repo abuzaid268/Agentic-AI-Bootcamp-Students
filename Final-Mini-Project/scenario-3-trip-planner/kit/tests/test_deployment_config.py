@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import app.deployment_check as startup_check
 import app.deployment_env as deployment
 from app.flights import FlightSearch, UnavailableProvider, provider_from_env
 from app.weather import WeatherService
@@ -101,5 +102,40 @@ def test_the_production_overlay_sets_production_literally_and_closes_internal_po
 
 
 def test_the_production_overlay_only_touches_known_services():
+    # prod-guard is the overlay's own one-shot start-up check; every other service must already exist in the base.
     base = set(compose("docker-compose.yml")["services"])
-    assert set(compose("docker-compose.prod.yml")["services"]) <= base
+    assert set(compose("docker-compose.prod.yml")["services"]) - {"prod-guard"} <= base
+
+
+# ------------------------------------------------------------------ production start-up check (prod-guard)
+@pytest.mark.parametrize("environ", [{}, {"TRAVEL_API_KEY": ""}, {"TRAVEL_API_KEY": "   "}])
+def test_a_missing_or_empty_key_stops_production(environ):
+    assert startup_check.problems(environ) == [
+        "TRAVEL_API_KEY is missing or empty: set a private key for production."]
+
+
+@pytest.mark.parametrize("key", ["dev-key-change-me", " dev-key-change-me ", "DEV-KEY-CHANGE-ME"])
+def test_the_kits_public_development_key_stops_production(key):
+    assert startup_check.problems({"TRAVEL_API_KEY": key}) == [
+        "TRAVEL_API_KEY is the kit's public development key: set a private key for production."]
+
+
+def test_a_private_key_passes_and_is_never_printed(monkeypatch, capsys):
+    secret = "a-private-key-for-the-test-only-0123456789"
+    assert startup_check.problems({"TRAVEL_API_KEY": secret}) == []
+    monkeypatch.setenv("TRAVEL_API_KEY", secret)
+    assert startup_check.main() == 0
+    monkeypatch.setenv("TRAVEL_API_KEY", "dev-key-change-me")
+    assert startup_check.main() == 1
+    out = capsys.readouterr()
+    assert secret not in out.out + out.err and "dev-key-change-me" not in out.out + out.err
+
+
+def test_travel_api_and_app_start_only_after_the_guard_succeeds():
+    services = compose("docker-compose.prod.yml")["services"]
+    guard = services["prod-guard"]
+    assert guard["command"] == ["python", "-m", "app.deployment_check"]
+    assert "env_file" not in guard and set(guard["environment"]) == {"TRAVEL_API_KEY"}  # no other secret
+    assert guard["environment"]["TRAVEL_API_KEY"].startswith("${TRAVEL_API_KEY:?")
+    for name in ("travel-api", "app"):
+        assert services[name]["depends_on"]["prod-guard"] == {"condition": "service_completed_successfully"}
