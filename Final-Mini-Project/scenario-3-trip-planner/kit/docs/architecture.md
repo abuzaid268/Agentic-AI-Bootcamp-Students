@@ -1,15 +1,14 @@
 # Rihla: architecture and feature status
 
 **What this document is:**
-- A draft by Member 3, written on 2026-11-03 from the code on branch `feature/destinations-flights` (started from `main` at `3d9fd86`).
-- Updated the same day after `main` moved to `6df209d` (PR #15, which merged WHAT IF, approval and sign-in work). `main` was read read-only; this branch is not merged into it yet.
+- Written by Member 3 on 2026-11-03 from the code, and updated after Member 3's work was merged into `main` by PR #16 (merge commit `12513aa`, on top of PR #15's WHAT IF, approval and sign-in work).
 - It is kept under `docs/` so that it doesn't overwrite the shared `README.md`, which is the official kit's.
 
 **Status words used here:**
 
 | Word | Meaning |
 |---|---|
-| **Tested** | Implemented, with automated tests passing on this branch |
+| **Tested** | Implemented, with automated tests passing on `main` |
 | **Not integrated** | Works in isolation, but isn't wired into the running app |
 | **Pending merge** | Exists on another branch |
 | **Proposed** | Not built |
@@ -45,7 +44,7 @@
 
 ## 3. System architecture
 
-The diagram follows the code. **Dashed lines are not wired yet:** each needs a handoff, or is on an unmerged branch.
+The diagram follows the code. **Dashed lines are not wired yet:** each needs a handoff (the code itself is on `main`).
 
 ```mermaid
 flowchart LR
@@ -150,15 +149,15 @@ This is from the code, with Member 1 as owner. **The LLM decides; Python calcula
 
 | Area | Status | Notes |
 |---|---|---|
-| Crew planning, verification, revision | **Tested** on `main` (Member 1) | On this branch alone: 1211 passed, 13 skipped, 1 failed (`test_trip_store_integration`, Member 1's `app/trip_store.py` as it was at `3d9fd86`). Combined with `main` `6df209d` in a throwaway copy: 1400 passed, 10 skipped, **0 failed**, because `main` already fixed `app/trip_store.py` (2026-11-03). |
+| Crew planning, verification, revision | **Tested** on `main` (Member 1) | The whole backend suite on `main` after PR #16: **1418 passed, 10 skipped, 0 failed** (2026-11-03, with the airport-country change in this document's commit). |
 | Approval and saving to the Trip Store | **Tested** on `main` | Saving needs `TRAVEL_TRAVELLER_ID`; without it, approval answers 503 |
 | Google sign-in | **Tested** on `main` (Member 2) | `app.auth_app`. Protected: `/api/chat`, `/api/approve`, `/api/trips`. |
 | My Trips, PDF export | **Tested** on `main` (Member 2) | |
 | WHAT IF simulation (`app/whatif.py`, `/api/whatif`, `/api/whatif/apply`) | **On `main`** (PR #15, Member 1) | Tested by Member 1's `tests/test_whatif.py` on `main`. Not re-run in this review. |
 | WHAT IF UI (`services/whatIf.js`) | **On `main`** (Member 2) | |
-| WHAT IF fixtures and checks | **Tested**, **not integrated** | `docs/whatif.md`. On this branch only. Checked by hand against the real `forecast_rain`, which is the same file now on `main`. The fixtures have not been run through the simulation end to end. |
+| WHAT IF fixtures and checks | **Tested**, **not integrated** | `docs/whatif.md`. On `main`; the compatibility test runs against the real `forecast_rain` and passes. `main`'s WHAT IF doesn't use the weather adapter yet, and the fixtures have not been run through the simulation end to end (it needs the LLM). |
 | Worldwide destination search | **Tested**, **not integrated** | `docs/destinations.md`. Needs Member 1 to install the router and Member 2 to place the component. |
-| Airport search | **Tested**, **not integrated** | `docs/airports.md` |
+| Airport search, with an optional departure country | **Tested**, **not integrated** | `docs/airports.md` |
 | Flight search | **Tested** with mocks, **not integrated** | `docs/flights.md`. Duffel: **unverified** (no token). DEMO is labelled. Production fails closed. |
 | Weather forecast | **Tested**, **not integrated** | `docs/weather.md`. Open-Meteo called live twice to verify. |
 | Docker (3 services) | **Tested** locally | `DOCKER.md`, `docs/deployment-readiness.md` |
@@ -201,11 +200,11 @@ This is from the code, with Member 1 as owner. **The LLM decides; Python calcula
 **Not covered:**
 - real browser interaction (no Playwright or Cypress);
 - authenticated Duffel calls;
-- the WHAT IF simulation on this branch.
+- the WHAT IF fixtures run through the real simulation (it needs the LLM).
 
 ## 8. Future improvements
 
-1. **Wire in Member 3's routers and components** (§5). First merge `feature/destinations-flights` into `main` through a reviewed PR; a trial merge against `6df209d` had no conflicts.
+1. **Wire in Member 3's routers and components** (§5). The code is on `main` (PR #16); installing the routers is Member 1's step and placing the components Member 2's.
 2. **Add browser end-to-end tests** (Playwright) for the main journey and the comboboxes.
 3. **Move session memory and rate counters to a shared store** (for example Redis or SQLite) before running more than one worker.
 4. **Measure the LLM cost per plan** from `/api/chat` `performance` and set a per-request budget.

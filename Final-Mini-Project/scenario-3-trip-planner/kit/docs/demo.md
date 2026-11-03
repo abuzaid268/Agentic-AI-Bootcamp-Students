@@ -2,6 +2,38 @@
 
 **What this document is:** a draft by Member 3, written 2026-11-03. Re-check §4 on the day: anything wired in or merged after this date changes it.
 
+## 0. The official format: 6-minute live demo and 3-minute video
+
+`Final-Mini-Project/common/DEMO-GUIDE.md` sets the format. Here it is mapped to Rihla. Partner A and Partner B are
+whoever presents; each must be able to answer about the whole system.
+
+### Live demo: 6 minutes, plus 2 minutes of Q&A
+
+| Time | Who | What, in Rihla |
+|---|---|---|
+| 0:00–0:45 | A | **The problem and the user:** a traveller wants a plan they can trust. Show the diagram in `docs/architecture.md` §3, and point at the crew, the MCP server, memory and the approval gate (`/api/approve`). |
+| 0:45–2:45 | A | **The happy path in the UI:** plan the rehearsed Istanbul or Amman trip, show the sources, approve, show the `TRIP-…` ID, then show it in **My Trips** or with `curl http://localhost:8103/admin/trips`. |
+| 2:45–4:15 | B | **Two things going wrong.** (1) A conflict: Topkapı is closed on Tuesdays (eval S3-05). (2) A live tool failure with the fault command below: the reply says the source is down, and nothing is proposed for saving. |
+| 4:15–5:15 | B | **The scorecard:** open `evals/scorecard.md`, the pass rate by category, and the one failure fixed, before and after. **This file doesn't exist yet** (see §6). |
+| 5:15–6:00 | Both | **Real or simulated, and what we'd fix next:** use §5 and `docs/deployment-readiness.md`. |
+
+**Fault command** (checked 2026-11-03 against the running stack; keep it in a text file and paste it):
+
+```bash
+curl -X POST http://localhost:8103/admin/faults -H "Content-Type: application/json" -d '{"target": "attractions", "mode": "error_503", "count": 1}'
+curl -X DELETE http://localhost:8103/admin/faults    # clear afterwards
+curl -X POST http://localhost:8103/admin/reset       # before presenting: a clean Trip Store
+```
+
+### Video: 3 minutes, for the README
+
+1. **0:00–0:20:** the problem, and who it is for.
+2. **0:20–1:50:** the happy path end to end, including the approval card.
+3. **1:50–2:30:** one failure handled well (the fault above, or a rejection).
+4. **2:30–3:00:** the architecture diagram and the scorecard, then the repo link.
+
+Not recorded yet. Upload it as unlisted and put the link at the top of the README.
+
 ## 1. Short demo script (about 5 minutes, for a general audience)
 
 1. **The problem.** A single chatbot invents opening hours and prices. Rihla's rule is: every place, hour and price has a source, and nothing is saved without your approval.
@@ -29,7 +61,7 @@
    - `/api/flights?origin=TLV&destination=LHR&departure_date=…`: `data_mode: DEMO`, with every offer labelled.
    - The same request with `RIHLA_ENV=production`: `503 flights_unavailable`. Production never shows made-up prices. `/api/destinations` answers `503 destinations_unavailable` too, until the Open-Meteo licence is decided.
    - `/api/weather?latitude=41.01&longitude=28.98`: a real Open-Meteo forecast, `data_status: LIVE`. Call it again: `CACHED`.
-5. **Tests:** `python -m pytest -q` (about 1 minute) and `cd rihla-frontend && npm test`. On this branch alone, one test fails (`test_trip_store_integration`): `main` has already fixed it, and combined with `main` all pass.
+5. **Tests:** `python -m pytest -q` (about 1 minute) and `cd rihla-frontend && npm test`. On `main` after PR #16 everything passes: 1418 passed, 10 skipped, 0 failed, and 246 frontend tests (2026-11-03).
 6. **Docker:** `docker compose up -d --build --wait`. All three containers become healthy. Then `docker compose down`.
 
 ## 3. Reliable demo paths
@@ -66,7 +98,7 @@ python -c "from app.auth_app import app; from app.destinations import install_de
 | Flight comparison | **DEMO data only** | Duffel was never called with a real token |
 | Weather | **API working with live data, not in the UI yet** | |
 | WHAT IF (Member 1 and 2) | **On `main`** (PR #15) | Try it on `main` before the demo; it was not re-run in this review. Call each result **hypothetical**. |
-| WHAT IF fixtures and weather adapter (Member 3) | **Tests only** | On `feature/destinations-flights`, not yet merged into `main`, and not run end to end |
+| WHAT IF fixtures and weather adapter (Member 3) | **Tests only** | On `main` (PR #16); not used by `main`'s WHAT IF yet, and not run end to end |
 | Public deployment | **None** | Local Docker only |
 
 ## 5. Do NOT present as live or real
@@ -81,7 +113,7 @@ python -c "from app.auth_app import app; from app.destinations import install_de
 ## 6. Pre-presentation checklist
 
 - [ ] `git status` is clean on the branch being demoed, and the pulled commit hash is noted.
-- [ ] `python -m pytest -q` passes, apart from the known Member 1 failure.
+- [ ] `python -m pytest -q` passes (on `main` after PR #16: 1418 passed, 10 skipped, 0 failed).
 - [ ] `npm ci && npm test && npm run lint && npm run build` pass in `rihla-frontend`.
 - [ ] `docker compose up -d --build --wait` shows three healthy containers, and `http://localhost:5173/health` is ok.
 - [ ] `.env` has `OPENROUTER_API_KEY`, the Firebase settings and `TRAVEL_TRAVELLER_ID`, and there is credit left on OpenRouter.
@@ -92,3 +124,6 @@ python -c "from app.auth_app import app; from app.destinations import install_de
 - [ ] Never demo with `docker-compose.prod.yml` unless you mean to show production behaviour.
 - [ ] Internet is available for the live weather and destination calls. Otherwise use the tests.
 - [ ] Nobody says "real-time flight prices", "deployed" or "live" for recorded data.
+- [ ] `POST /admin/reset` was run, and `GET /admin/faults` shows no armed fault.
+- [ ] The scorecard exists: `python evals/run_evals.py` was run with credit on OpenRouter (it makes real LLM calls),
+      and `evals/scorecard.md` is pasted into the README.
