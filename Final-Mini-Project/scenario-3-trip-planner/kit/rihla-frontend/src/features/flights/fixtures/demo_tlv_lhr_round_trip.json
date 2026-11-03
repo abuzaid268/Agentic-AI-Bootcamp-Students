@@ -1,0 +1,481 @@
+{
+  "query": {
+    "origin": "TLV",
+    "destination": "LHR",
+    "departure_date": "2026-12-01",
+    "return_date": "2026-12-08",
+    "adults": 2,
+    "cabin_class": "economy",
+    "trip_type": "round_trip"
+  },
+  "data_mode": "DEMO",
+  "provider": "Rihla demo data",
+  "retrieved_at": "2026-11-02T12:00:00Z",
+  "cached": false,
+  "count": 4,
+  "total_offers": 4,
+  "offers": [
+    {
+      "id": "demo:dcd71c09cc-2",
+      "provider_offer_id": null,
+      "airline": {
+        "name": "Example Airlines",
+        "iata_code": null
+      },
+      "total_amount": "1070.00",
+      "currency": "USD",
+      "passengers": 2,
+      "cabin_class": "economy",
+      "slices": [
+        {
+          "origin": "TLV",
+          "destination": "LHR",
+          "departing_at": "2026-12-01T15:15",
+          "arriving_at": "2026-12-01T23:20",
+          "duration_minutes": 485,
+          "stops": 1,
+          "connections": [
+            "FRA"
+          ],
+          "segments": [
+            {
+              "origin": "TLV",
+              "destination": "FRA",
+              "departing_at": "2026-12-01T15:15",
+              "arriving_at": "2026-12-01T19:35",
+              "duration_minutes": 260,
+              "flight_number": "DEMO 342",
+              "marketing_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": null,
+                "carry_on": null
+              }
+            },
+            {
+              "origin": "FRA",
+              "destination": "LHR",
+              "departing_at": "2026-12-01T21:55",
+              "arriving_at": "2026-12-01T23:20",
+              "duration_minutes": 85,
+              "flight_number": "DEMO 343",
+              "marketing_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": null,
+                "carry_on": null
+              }
+            }
+          ]
+        },
+        {
+          "origin": "LHR",
+          "destination": "TLV",
+          "departing_at": "2026-12-08T12:00",
+          "arriving_at": "2026-12-08T19:50",
+          "duration_minutes": 470,
+          "stops": 1,
+          "connections": [
+            "FRA"
+          ],
+          "segments": [
+            {
+              "origin": "LHR",
+              "destination": "FRA",
+              "departing_at": "2026-12-08T12:00",
+              "arriving_at": "2026-12-08T13:25",
+              "duration_minutes": 85,
+              "flight_number": "DEMO 392",
+              "marketing_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": null,
+                "carry_on": null
+              }
+            },
+            {
+              "origin": "FRA",
+              "destination": "TLV",
+              "departing_at": "2026-12-08T15:30",
+              "arriving_at": "2026-12-08T19:50",
+              "duration_minutes": 260,
+              "flight_number": "DEMO 393",
+              "marketing_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Example Airlines",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": null,
+                "carry_on": null
+              }
+            }
+          ]
+        }
+      ],
+      "baggage": {
+        "checked": null,
+        "carry_on": null
+      },
+      "expires_at": null,
+      "time_basis": "utc",
+      "data_mode": "DEMO",
+      "provider": "Rihla demo data"
+    },
+    {
+      "id": "demo:dcd71c09cc-3",
+      "provider_offer_id": null,
+      "airline": {
+        "name": "Placeholder Jet",
+        "iata_code": null
+      },
+      "total_amount": "1136.00",
+      "currency": "USD",
+      "passengers": 2,
+      "cabin_class": "economy",
+      "slices": [
+        {
+          "origin": "TLV",
+          "destination": "LHR",
+          "departing_at": "2026-12-01T07:00",
+          "arriving_at": "2026-12-01T15:30",
+          "duration_minutes": 510,
+          "stops": 1,
+          "connections": [
+            "FRA"
+          ],
+          "segments": [
+            {
+              "origin": "TLV",
+              "destination": "FRA",
+              "departing_at": "2026-12-01T07:00",
+              "arriving_at": "2026-12-01T11:20",
+              "duration_minutes": 260,
+              "flight_number": "DEMO 428",
+              "marketing_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 2,
+                "carry_on": 1
+              }
+            },
+            {
+              "origin": "FRA",
+              "destination": "LHR",
+              "departing_at": "2026-12-01T14:05",
+              "arriving_at": "2026-12-01T15:30",
+              "duration_minutes": 85,
+              "flight_number": "DEMO 429",
+              "marketing_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 2,
+                "carry_on": 1
+              }
+            }
+          ]
+        },
+        {
+          "origin": "LHR",
+          "destination": "TLV",
+          "departing_at": "2026-12-08T15:45",
+          "arriving_at": "2026-12-08T22:40",
+          "duration_minutes": 415,
+          "stops": 1,
+          "connections": [
+            "FRA"
+          ],
+          "segments": [
+            {
+              "origin": "LHR",
+              "destination": "FRA",
+              "departing_at": "2026-12-08T15:45",
+              "arriving_at": "2026-12-08T17:10",
+              "duration_minutes": 85,
+              "flight_number": "DEMO 478",
+              "marketing_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 2,
+                "carry_on": 1
+              }
+            },
+            {
+              "origin": "FRA",
+              "destination": "TLV",
+              "departing_at": "2026-12-08T18:20",
+              "arriving_at": "2026-12-08T22:40",
+              "duration_minutes": 260,
+              "flight_number": "DEMO 479",
+              "marketing_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Placeholder Jet",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 2,
+                "carry_on": 1
+              }
+            }
+          ]
+        }
+      ],
+      "baggage": {
+        "checked": 2,
+        "carry_on": 1
+      },
+      "expires_at": null,
+      "time_basis": "utc",
+      "data_mode": "DEMO",
+      "provider": "Rihla demo data"
+    },
+    {
+      "id": "demo:dcd71c09cc-1",
+      "provider_offer_id": null,
+      "airline": {
+        "name": "Sample Skyways",
+        "iata_code": null
+      },
+      "total_amount": "1172.00",
+      "currency": "USD",
+      "passengers": 2,
+      "cabin_class": "economy",
+      "slices": [
+        {
+          "origin": "TLV",
+          "destination": "LHR",
+          "departing_at": "2026-12-01T09:45",
+          "arriving_at": "2026-12-01T14:55",
+          "duration_minutes": 310,
+          "stops": 0,
+          "connections": [],
+          "segments": [
+            {
+              "origin": "TLV",
+              "destination": "LHR",
+              "departing_at": "2026-12-01T09:45",
+              "arriving_at": "2026-12-01T14:55",
+              "duration_minutes": 310,
+              "flight_number": "DEMO 240",
+              "marketing_carrier": {
+                "name": "Sample Skyways",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Sample Skyways",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 0,
+                "carry_on": 1
+              }
+            }
+          ]
+        },
+        {
+          "origin": "LHR",
+          "destination": "TLV",
+          "departing_at": "2026-12-08T19:45",
+          "arriving_at": "2026-12-09T00:55",
+          "duration_minutes": 310,
+          "stops": 0,
+          "connections": [],
+          "segments": [
+            {
+              "origin": "LHR",
+              "destination": "TLV",
+              "departing_at": "2026-12-08T19:45",
+              "arriving_at": "2026-12-09T00:55",
+              "duration_minutes": 310,
+              "flight_number": "DEMO 290",
+              "marketing_carrier": {
+                "name": "Sample Skyways",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Sample Skyways",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 0,
+                "carry_on": 1
+              }
+            }
+          ]
+        }
+      ],
+      "baggage": {
+        "checked": 0,
+        "carry_on": 1
+      },
+      "expires_at": null,
+      "time_basis": "utc",
+      "data_mode": "DEMO",
+      "provider": "Rihla demo data"
+    },
+    {
+      "id": "demo:dcd71c09cc-0",
+      "provider_offer_id": null,
+      "airline": {
+        "name": "Rihla Demo Air",
+        "iata_code": null
+      },
+      "total_amount": "1416.00",
+      "currency": "USD",
+      "passengers": 2,
+      "cabin_class": "economy",
+      "slices": [
+        {
+          "origin": "TLV",
+          "destination": "LHR",
+          "departing_at": "2026-12-01T12:30",
+          "arriving_at": "2026-12-01T17:40",
+          "duration_minutes": 310,
+          "stops": 0,
+          "connections": [],
+          "segments": [
+            {
+              "origin": "TLV",
+              "destination": "LHR",
+              "departing_at": "2026-12-01T12:30",
+              "arriving_at": "2026-12-01T17:40",
+              "duration_minutes": 310,
+              "flight_number": "DEMO 140",
+              "marketing_carrier": {
+                "name": "Rihla Demo Air",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Rihla Demo Air",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 1,
+                "carry_on": 1
+              }
+            }
+          ]
+        },
+        {
+          "origin": "LHR",
+          "destination": "TLV",
+          "departing_at": "2026-12-08T18:45",
+          "arriving_at": "2026-12-08T23:55",
+          "duration_minutes": 310,
+          "stops": 0,
+          "connections": [],
+          "segments": [
+            {
+              "origin": "LHR",
+              "destination": "TLV",
+              "departing_at": "2026-12-08T18:45",
+              "arriving_at": "2026-12-08T23:55",
+              "duration_minutes": 310,
+              "flight_number": "DEMO 190",
+              "marketing_carrier": {
+                "name": "Rihla Demo Air",
+                "iata_code": null
+              },
+              "operating_carrier": {
+                "name": "Rihla Demo Air",
+                "iata_code": null
+              },
+              "technical_stops": 0,
+              "baggage": {
+                "checked": 1,
+                "carry_on": 1
+              }
+            }
+          ]
+        }
+      ],
+      "baggage": {
+        "checked": 1,
+        "carry_on": 1
+      },
+      "expires_at": null,
+      "time_basis": "utc",
+      "data_mode": "DEMO",
+      "provider": "Rihla demo data"
+    }
+  ],
+  "currencies": [
+    "USD"
+  ],
+  "comparable": true,
+  "cheapest": {
+    "offer_id": "demo:dcd71c09cc-2",
+    "total_amount": "1070.00",
+    "currency": "USD"
+  },
+  "cheapest_by_currency": {
+    "USD": {
+      "offer_id": "demo:dcd71c09cc-2",
+      "total_amount": "1070.00",
+      "currency": "USD"
+    }
+  },
+  "skipped_offers": {
+    "unusable": 0,
+    "expired": 0
+  },
+  "notices": [
+    "DEMO data: sample flights made up by Rihla to show the feature. They are not real flights, schedules or prices.",
+    "No flight provider is set up on this server (DUFFEL_ACCESS_TOKEN). Showing DEMO data.",
+    "Flight prices are for information only and are not part of the trip budget. Rihla does not book flights or take payments."
+  ],
+  "booking_supported": false
+}
