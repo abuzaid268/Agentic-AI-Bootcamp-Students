@@ -335,9 +335,11 @@ def approve(request: ApproveRequest):
         decided = session.setdefault("decided_actions", {})
         pending = session.get("pending_action")
 
-        def respond(status: str, reply: str, result: dict | None = None) -> ChatResponse:
+        def respond(status: str, reply: str, result: dict | None = None, *,
+                    pending_action: dict | None = None) -> ChatResponse:
             return ChatResponse(session_id=request.session_id, status=status, state=status, reply=reply,
-                                message=reply, result=result, tool_calls=[dict(c) for c in calls])
+                                message=reply, result=result, pending_action=pending_action,
+                                tool_calls=[dict(c) for c in calls])
 
         is_pending = pending is not None and pending.get("action_id") == request.action_id
         earlier = decided.get(request.action_id)
@@ -398,7 +400,8 @@ def approve(request: ApproveRequest):
         if not traveller_id:
             # Keep the pending action: the plan is still approvable once a traveller is known.
             return respond("save_failed", "I can't save this plan: no traveller is identified for it (sign in, or "
-                                          "set TRAVEL_TRAVELLER_ID on the server). Nothing was saved.")
+                                          "set TRAVEL_TRAVELLER_ID on the server). Nothing was saved.",
+                           pending_action=deepcopy(pending))
 
         try:
             saved_trip = save_trip_to_store(
@@ -413,7 +416,7 @@ def approve(request: ApproveRequest):
             logger.warning("save_trip over MCP failed for action %s: %s", request.action_id, exc.code)
             return respond("save_failed", "The Trip Store did not save this plan"
                            + (f" ({exc.code})" if exc.code else "") + ". Nothing was saved; you can try "
-                           "approving again.")
+                           "approving again.", pending_action=deepcopy(pending))
 
         # Clear pending action only after confirmed save.
         trip_id = saved_trip["trip_id"]
