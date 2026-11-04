@@ -30,6 +30,7 @@ const TONES = {
  *
  * Props:
  *  - label, placeholder, name, required, disabled, id
+ *  - clearLabel: the clear button's accessible name ("Clear destination")
  *  - defaultValue: the starting text (the component keeps its own text after that)
  *  - onTextChange(text): every change of the typed text (also when a city is chosen: its label, shortened to
  *    100 characters when needed, the trip form's limit)
@@ -39,6 +40,7 @@ const TONES = {
  */
 export default function DestinationSearch({
   label = 'Destination',
+  clearLabel = 'Clear destination',
   placeholder = 'City, e.g. Paris',
   defaultValue = '',
   onTextChange,
@@ -199,7 +201,7 @@ export default function DestinationSearch({
           />
         )}
         {text && !disabled && (
-          <button type="button" onClick={clear} aria-label="Clear destination" className={styles.clear}>
+          <button type="button" onClick={clear} aria-label={clearLabel} className={styles.clear}>
             <X size={16} />
           </button>
         )}

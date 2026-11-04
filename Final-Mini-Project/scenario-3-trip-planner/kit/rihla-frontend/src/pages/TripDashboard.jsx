@@ -9,6 +9,8 @@ import { AuthRequiredError } from '../auth/authApi'
 import { useAuth } from '../auth/authContext'
 import { applyRevision, revisionBlockedReason } from '../services/tripRevision'
 import WhatIfPanel from './WhatIfPanel'
+import { TripTravelInfo } from '../features/trip-travel'
+import { sourceLinks } from '../services/citations'
 import { SAMPLE_HERO_IMAGE, SAMPLE_TRIP } from '../data/sampleTrip'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
@@ -123,6 +125,8 @@ export default function TripDashboard() {
   const summary = isReal && aiResult.summary ? aiResult.summary : null
   const coverageByInterest = Object.fromEntries((summary?.interest_coverage || []).map((c) => [c.interest, c]))
   const limitations = summary?.limitations || []
+  const sources = isReal ? sourceLinks(aiResult.citations) : [] // the backend's citations only, never invented
+  const planDays = isReal ? aiResult.itinerary.days || [] : [] // ISO dates, for a trip opened without its form
   const [detailsOpen, setDetailsOpen] = useState(false) // the status strip's full text: collapsed by default
   const budget = summarizeBudget(view.budgetTotal, view.estimatedTotal, view.unknownCostCount)
   const money = (value) => formatMoney(value, view.currency)
@@ -750,6 +754,23 @@ export default function TripDashboard() {
                 </button>
               </div>
             </section>
+
+            {/* Weather and optional flight prices (features/trip-travel): for a generated trip only, never the
+                sample. FROM and TO come from the home page's choices (trip.originPlace, trip.destinationPlace);
+                a trip saved before they existed shows the typed destination and no forecast. Nothing here
+                changes the itinerary or its budget. */}
+            {isReal && !sampleEntry && (
+              <div className="mt-7">
+                <TripTravelInfo
+                  destination={trip.destinationPlace || null}
+                  destinationText={trip.destination || view.destination}
+                  origin={trip.originPlace || null}
+                  startDate={trip.departureDate || planDays[0]?.date || ''}
+                  endDate={trip.returnDate || planDays[planDays.length - 1]?.date || ''}
+                  travellers={Number(trip.travellers) || 1}
+                />
+              </div>
+            )}
           </div>
 
           <aside className="space-y-6">
@@ -808,6 +829,34 @@ export default function TripDashboard() {
                 {isSample ? 'Sample figures only, not real estimates.' : SCOPE_NOTE}
               </p>
             </section>
+
+            {/* The sources the backend cited for this itinerary (aiResult.citations); no list when it sent none. */}
+            {sources.length > 0 && (
+              <section aria-labelledby="sources-title" className="rounded-[28px] border border-[#e0ebed] bg-white p-6 shadow-sm">
+                <h2 id="sources-title" className="mb-1 text-xl font-bold">Sources</h2>
+                <p className="mb-4 text-xs text-[#8297a0]">Where the places and prices in this plan come from.</p>
+                <ol className="space-y-2 text-sm">
+                  {sources.map((source) => (
+                    <li key={source.id} className="min-w-0">
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-start gap-2 rounded-xl px-2 py-1.5 text-[#2e7b87] hover:bg-[#eef6f7]"
+                      >
+                        <ExternalLink size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{source.title}</span>
+                          {source.title !== source.host && (
+                            <span className="block truncate text-xs text-[#8297a0]">{source.host}</span>
+                          )}
+                        </span>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
 
             <section
               id="assistant"

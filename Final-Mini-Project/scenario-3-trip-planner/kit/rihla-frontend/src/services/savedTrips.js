@@ -1,5 +1,6 @@
 import { isValidTripResult } from './tripResult.js'
 import { SAMPLE_TRIP_ENTRIES } from '../data/sampleTrips.js'
+import { placeFrom } from '../features/trip-travel/tripTravelState.js'
 
 // Copies kept in THIS browser only (localStorage): drafts, labelled sample trips, and a copy of each trip the
 // backend approved. Approved trips themselves are the Rihla Trip Store's (GET /api/trips, per signed-in user); a
@@ -55,6 +56,10 @@ function requestFields(request = {}) {
     budget: request.budget ?? null,
     interests: Array.isArray(request.interests) ? request.interests.map(String) : [],
     customPreferences: String(request.customPreferences || ''),
+    // The cities chosen on the home page (name, country, coordinates), for the trip page's weather and flights.
+    // Plain values only; null for a trip saved before they existed, or typed without choosing a suggestion.
+    destinationPlace: placeFrom(request.destinationPlace),
+    originPlace: placeFrom(request.originPlace),
   }
 }
 
