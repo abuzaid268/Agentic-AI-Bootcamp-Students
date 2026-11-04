@@ -27,6 +27,10 @@ export default function App() {
   const location = useLocation()
   const { user, loggingOut, requireAuth, openLogin, logout, sessionExpired } = useAuth()
   const [destination, setDestination] = useState('')
+  // The cities chosen from the suggestions (coordinates, country): for the trip page's weather and flights only,
+  // never sent to the planner. null when the text was typed without choosing, or changed after choosing.
+  const [destinationPlace, setDestinationPlace] = useState(null)
+  const [originPlace, setOriginPlace] = useState(null)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [travellers, setTravellers] = useState('2')
@@ -104,6 +108,9 @@ export default function App() {
       budget,
       interests,
       customPreferences,
+      // not sent to /api/chat (buildTripForm and buildTripMessage pick their own fields): the trip page reads them
+      destinationPlace,
+      originPlace,
     }
 
     const problems = validateTripForm(trip)
@@ -259,12 +266,22 @@ export default function App() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Worldwide city search (docs/destinations.md): the form still sends plain text; a chosen
                     suggestion sends its full label ("Paris, Île-de-France Region, France"), never a guess. */}
+                {/* FROM (optional) -> TO. FROM only starts the trip page's flight search; it is not sent to the
+                    planner. Both keep the chosen place (coordinates, country) through onSelect. */}
                 <DestinationSearch
-                  label="Destination"
+                  label="From (optional, for flights)"
+                  tone="dark"
+                  placeholder="Your city (e.g. London)"
+                  clearLabel="Clear departure city"
+                  onSelect={setOriginPlace}
+                />
+                <DestinationSearch
+                  label="To"
                   tone="dark"
                   placeholder="City, Country (e.g. Paris, France)"
                   defaultValue={destination}
                   onTextChange={setDestination}
+                  onSelect={setDestinationPlace}
                   required
                 />
 
