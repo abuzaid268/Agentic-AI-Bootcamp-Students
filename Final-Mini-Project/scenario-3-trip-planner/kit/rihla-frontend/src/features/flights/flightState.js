@@ -1,14 +1,26 @@
 // Pure helpers for FlightSearch: form checks, the answer from GET /api/flights, sorting and formatting.
+import { cleanNearbyPlace } from '../airports/airportState.js'
 
 export const CABIN_CLASSES = [
   ['economy', 'Economy'], ['premium_economy', 'Premium economy'], ['business', 'Business'], ['first', 'First'],
 ]
 export const MAX_ADULTS = 9
 
+// `price` is the line shown with every price, so a made-up price is never read as a fare: simulated prices say so on
+// the card itself, not only in a banner. Nothing here is ever bookable on Rihla.
 export const DATA_MODES = {
-  LIVE: { label: 'LIVE', title: 'Live prices', detail: 'Prices from the provider at the time shown. They change and expire.' },
-  TEST: { label: 'TEST', title: 'Test data', detail: "From the provider's sandbox: not real flights, schedules or prices." },
-  DEMO: { label: 'DEMO', title: 'Demo data', detail: 'Sample flights made up by Rihla. Not real flights, schedules or prices.' },
+  LIVE: {
+    label: 'LIVE', title: 'Live prices', price: 'Provider price at the time shown · changes and expires · not bookable on Rihla',
+    detail: 'Prices from the provider at the time shown. They change and expire.',
+  },
+  TEST: {
+    label: 'TEST', title: 'Test data', price: 'Test price · not a real fare · not bookable',
+    detail: "From the provider's sandbox: not real flights, schedules or prices.",
+  },
+  DEMO: {
+    label: 'DEMO', title: 'Demo data', price: 'Simulated price · not a real fare · not bookable',
+    detail: 'Sample flights made up by Rihla. Not real flights, schedules or prices.',
+  },
 }
 
 // Badge and banner colours: green for live, amber for the sandbox, violet for made-up demo data.
@@ -48,17 +60,30 @@ const hintText = (value) => (typeof value === 'string' ? value.replace(/\s+/g, '
 
 // FlightSearch's starting values from optional props (a parent's trip), cleaned: anything unusable is left empty
 // for the traveller to fill in, never guessed. Hints are only text for the airport boxes, never a chosen airport.
-export function initialFlightForm({ departureHint, departureCountry, arrivalHint, departureDate, returnDate, adults } = {}) {
+export function initialFlightForm({
+  departureHint, departureCountry, arrivalHint, arrivalCountry, departurePlace, arrivalPlace, departureDate, returnDate,
+  adults,
+} = {}) {
   const depart = typeof departureDate === 'string' && ISO_DATE.test(departureDate) ? departureDate : ''
   const back = typeof returnDate === 'string' && ISO_DATE.test(returnDate) && (!depart || returnDate >= depart)
     ? returnDate : ''
   const count = Number(adults)
   const wanted = Number.isInteger(count) && count >= 1 ? count : 1
-  const country = typeof departureCountry === 'string' ? departureCountry.trim() : ''
+  const countryCode = (value) => {
+    const text = typeof value === 'string' ? value.trim() : ''
+    return /^[A-Za-z]{2}$/.test(text) ? text.toUpperCase() : ''
+  }
+  // A chosen place (structured, with coordinates) is what the nearby-airport lists are asked about, and its country
+  // starts that side's country filter. A side without one keeps working from the hint text alone.
+  const fromPlace = cleanNearbyPlace(departurePlace)
+  const toPlace = cleanNearbyPlace(arrivalPlace)
   return {
     departureHint: hintText(departureHint),
-    departureCountry: /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : '',
+    departureCountry: countryCode(departureCountry) || fromPlace?.countryCode || '',
     arrivalHint: hintText(arrivalHint),
+    arrivalCountry: countryCode(arrivalCountry) || toPlace?.countryCode || '',
+    departurePlace: fromPlace,
+    arrivalPlace: toPlace,
     departureDate: depart,
     returnDate: back,
     roundTrip: !depart || Boolean(back), // a trip with a start date but no return date is searched one way
@@ -143,8 +168,18 @@ export function sanitizeFlightAnswer(body) {
     throw new Error('The server sent an unexpected flight search answer.')
   }
   const offers = body.offers.map(sanitizeOffer).filter(Boolean)
+  const q = body.query && typeof body.query === 'object' ? body.query : {}
   return {
     offers,
+    // What was searched, as the server ran it: shown above the offers so they are never read as another trip.
+    query: {
+      origin: /^[A-Z]{3}$/.test(q.origin || '') ? q.origin : null,
+      destination: /^[A-Z]{3}$/.test(q.destination || '') ? q.destination : null,
+      tripType: q.trip_type === 'one_way' || q.trip_type === 'round_trip' ? q.trip_type : null,
+      departureDate: ISO_DATE.test(q.departure_date || '') ? q.departure_date : null,
+      returnDate: ISO_DATE.test(q.return_date || '') ? q.return_date : null,
+      adults: intOrNull(q.adults),
+    },
     dataMode: body.data_mode,
     provider: textOrNull(body.provider),
     retrievedAt: textOrNull(body.retrieved_at),
@@ -180,6 +215,61 @@ export function cheapestByCurrency(offers) {
     if (!best || Number(offer.totalAmount) < Number(best.totalAmount)) cheapest[offer.currency] = offer
   }
   return cheapest
+}
+
+// How long the whole journey takes (every slice), or null when any part has no duration: an unknown duration is
+// never counted as short.
+export function journeyMinutes(offer) {
+  const minutes = offer.slices.map((s) => s.durationMinutes)
+  return minutes.every((m) => Number.isInteger(m)) ? minutes.reduce((a, b) => a + b, 0) : null
+}
+
+// The offer with the shortest whole journey in each currency (ties go to the cheaper one): { USD: offer }. Offers
+// whose duration is unknown are never called fastest; a currency with none has no entry.
+export function fastestByCurrency(offers) {
+  const fastest = {}
+  for (const offer of offers) {
+    const minutes = journeyMinutes(offer)
+    if (minutes === null) continue
+    const best = fastest[offer.currency]
+    const bestMinutes = best ? journeyMinutes(best) : null
+    if (!best || minutes < bestMinutes || (minutes === bestMinutes && Number(offer.totalAmount) < Number(best.totalAmount))) {
+      fastest[offer.currency] = offer
+    }
+  }
+  return fastest
+}
+
+// "Round trip" or "One way", from the offer's own journey.
+export const tripTypeLabel = (offer) => (offer.slices.length > 1 ? 'Round trip' : 'One way')
+
+// The searched trip in one line ("Round trip · AMM ⇄ IST · 2 adults · 2026-12-01 to 2026-12-08").
+export function searchSummary(query) {
+  if (!query?.tripType || !query.origin || !query.destination) return ''
+  const round = query.tripType === 'round_trip'
+  const people = query.adults ? `${query.adults} ${query.adults === 1 ? 'adult' : 'adults'}` : null
+  const dates = query.departureDate ? (round && query.returnDate ? `${query.departureDate} to ${query.returnDate}` : query.departureDate) : null
+  return [round ? 'Round trip' : 'One way', `${query.origin} ${round ? '⇄' : '→'} ${query.destination}`, people, dates]
+    .filter(Boolean).join(' · ')
+}
+
+// The cheapest and the fastest offer side by side, one entry per currency (never across currencies):
+// { currency, cheapest, fastest, same, extra, saved } where `extra` is what the fastest costs more than the cheapest
+// (a decimal string) and `saved` the minutes it saves; both are null when they cannot be said.
+export function compareOffers(offers) {
+  const cheapest = cheapestByCurrency(offers)
+  const fastest = fastestByCurrency(offers)
+  return Object.keys(cheapest).filter((currency) => fastest[currency]).map((currency) => {
+    const cheap = cheapest[currency]
+    const fast = fastest[currency]
+    const same = cheap.id === fast.id
+    const cheapMinutes = journeyMinutes(cheap)
+    const extra = same ? null : (Number(fast.totalAmount) - Number(cheap.totalAmount)).toFixed(2)
+    return {
+      currency, cheapest: cheap, fastest: fast, same, extra,
+      saved: !same && cheapMinutes !== null ? cheapMinutes - journeyMinutes(fast) : null,
+    }
+  })
 }
 
 export function formatPrice(amount, currency) {

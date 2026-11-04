@@ -33,15 +33,28 @@ const RESULT = {
     days: [{ date: '2026-12-01', activities: [{ name: 'Citadel', estimated_cost: 20 }] }] },
 }
 
-describe('the /api/chat contract is unchanged', () => {
-  it('the trip form sends the same fields as before, without the places', () => {
+const FORM_FIELDS = ['budget', 'currency', 'destination', 'end_date', 'interests', 'preferences', 'start_date', 'travellers']
+
+describe('/api/chat: the destination\'s identity, added without changing the rest', () => {
+  it('a chosen destination is sent as trip.place: GeoNames id, country code and coordinates', () => {
     const form = buildTripForm(TRIP)
-    assert.deepEqual(Object.keys(form).sort(),
-      ['budget', 'currency', 'destination', 'end_date', 'interests', 'preferences', 'start_date', 'travellers'])
-    assert.equal(JSON.stringify(form).includes('London'), false)
+    assert.deepEqual(Object.keys(form).sort(), [...FORM_FIELDS, 'place'].sort())
+    assert.deepEqual(form.place, { id: 'geonames:250441', kind: 'city', name: 'Amman', region: 'Amman Governorate',
+      country: 'Jordan', country_code: 'JO', latitude: 31.95522, longitude: 35.94503, label: 'Amman, Amman Governorate, Jordan' })
+    assert.equal(form.destination, form.place.label) // the text and the place name the same city
   })
 
-  it('the request body carries no place: not in the form, not in the message', async () => {
+  it('FROM is never sent: it only starts the flight search', () => {
+    assert.equal(JSON.stringify(buildTripForm(TRIP)).includes('London'), false)
+  })
+
+  it('a typed destination, an older saved trip or an incomplete place sends exactly the old fields', () => {
+    for (const destinationPlace of [null, undefined, { name: 'Amman', label: 'Amman' }, { ...AMMAN, id: 'osm:5' }]) {
+      assert.deepEqual(Object.keys(buildTripForm({ ...TRIP, destinationPlace })).sort(), FORM_FIELDS)
+    }
+  })
+
+  it('the request body: the form with its place, and no other place data anywhere', async () => {
     let sent = null
     const realFetch = globalThis.fetch
     globalThis.fetch = async (url, init) => {
@@ -55,8 +68,9 @@ describe('the /api/chat contract is unchanged', () => {
     }
     assert.equal(sent.url, '/api/chat')
     assert.deepEqual(Object.keys(sent.body).sort(), ['message', 'session_id', 'trip'])
+    assert.equal(sent.body.trip.place.id, 'geonames:250441')
     const text = JSON.stringify(sent.body)
-    for (const leak of ['London', 'originPlace', 'destinationPlace', 'latitude', '51.50853']) {
+    for (const leak of ['London', 'originPlace', 'destinationPlace', '51.50853']) {
       assert.equal(text.includes(leak), false, leak)
     }
   })
@@ -74,8 +88,10 @@ describe('saved trips keep the places', () => {
     const storage = memoryStorage()
     saveTrip(RESULT, { ...TRIP, sessionId: 'sess-amman' }, storage)
     const { request } = getSavedTrip('sess-amman', storage)
-    assert.deepEqual(request.destinationPlace, { name: 'Amman', country: 'Jordan', countryCode: 'JO',
-      latitude: 31.95522, longitude: 35.94503, label: 'Amman, Amman Governorate, Jordan' })
+    assert.deepEqual(request.destinationPlace, { id: 'geonames:250441', name: 'Amman', region: 'Amman Governorate',
+      country: 'Jordan', countryCode: 'JO', latitude: 31.95522, longitude: 35.94503, label: 'Amman, Amman Governorate, Jordan' })
+    // reopened and planned again, it sends the same identity as when it was first chosen
+    assert.equal(buildTripForm({ ...request, destination: request.destination }).place.id, 'geonames:250441')
     assert.equal(request.originPlace.label, 'London, England, United Kingdom')
     // My Trips opens it with { ...request }: the trip page then has the forecast and the flight hints again
     const plan = travelInfoPlan({ destination: request.destinationPlace, origin: request.originPlace,
@@ -109,8 +125,9 @@ describe('saved trips keep the places', () => {
   it('a hand-edited place is cleaned, not trusted', () => {
     const entry = saveTrip(RESULT, { ...TRIP, destinationPlace: { name: 'X', latitude: 'north', token: 'secret' } },
       memoryStorage())
-    assert.deepEqual(entry.request.destinationPlace, { name: 'X', country: null, countryCode: null, latitude: null,
-      longitude: null, label: 'X' })
+    assert.deepEqual(entry.request.destinationPlace, { id: null, name: 'X', region: null, country: null,
+      countryCode: null, latitude: null, longitude: null, label: 'X' })
+    assert.equal('place' in buildTripForm({ ...TRIP, destinationPlace: entry.request.destinationPlace }), false)
   })
 })
 
@@ -126,8 +143,9 @@ describe('the pages are wired', () => {
   })
 
   it('the trip page shows TripTravelInfo with the trip\'s places, and the sources', () => {
-    assert.match(dashboard, /import \{ TripTravelInfo \} from '\.\.\/features\/trip-travel'/)
-    assert.match(dashboard, /\{isReal && !sampleEntry && \(\s*<div className="mt-7">\s*<TripTravelInfo/)
+    assert.match(dashboard, /import \{ TravelInfoBoundary, TripTravelInfo \} from '\.\.\/features\/trip-travel'/)
+    // still only for a generated trip, and inside the error boundary: a failure there cannot blank the itinerary
+    assert.match(dashboard, /\{isReal && !sampleEntry && \(\s*<div className="mt-7">\s*<TravelInfoBoundary>\s*<TripTravelInfo/)
     assert.match(dashboard, /destination=\{trip\.destinationPlace \|\| null\}/)
     assert.match(dashboard, /origin=\{trip\.originPlace \|\| null\}/)
     assert.match(dashboard, /const sources = isReal \? sourceLinks\(aiResult\.citations\) : \[\]/)

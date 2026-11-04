@@ -1,5 +1,5 @@
 // Client for GET /api/airports (app/airports): airport search for the departure and arrival boxes.
-import { normalizeQuery, sanitizeAirport, sanitizeCountries } from './airportState.js'
+import { cleanNearbyPlace, normalizeQuery, sanitizeAirport, sanitizeCountries, sanitizeNearby } from './airportState.js'
 
 export class AirportSearchError extends Error {
   constructor(message, { code = 'search_failed', retryable = false, status = null } = {}) {
@@ -79,5 +79,41 @@ export async function fetchAirportCountries({ signal, fetchImpl = globalThis.fet
   } catch (err) {
     if (signal?.aborted || err?.name === 'AbortError') throw err
     return []
+  }
+}
+
+// GET /api/airports/near: the airports near a place chosen in the destination box, nearest first. Resolves to
+// { airports, suggested, country, maxKm, note }, or to { unavailable: true, airports: [] } when the server has no such
+// route (an older server): the boxes still work by typing. Throws AirportSearchError for any other failure.
+export async function fetchNearbyAirports(place, { signal, limit = 6, fetchImpl = globalThis.fetch } = {}) {
+  const clean = cleanNearbyPlace(place)
+  if (!clean) throw new AirportSearchError('This place has no coordinates, so nearby airports cannot be listed.', { code: 'no_place' })
+  const params = new URLSearchParams({
+    lat: String(clean.latitude), lon: String(clean.longitude), country: clean.countryCode, limit: String(limit),
+  })
+  let response
+  try {
+    response = await fetchImpl(`/api/airports/near?${params}`, { signal, headers: { Accept: 'application/json' } })
+  } catch (err) {
+    if (signal?.aborted || err?.name === 'AbortError') throw err
+    throw new AirportSearchError('Could not reach the Rihla server for nearby airports.', { code: 'network', retryable: true })
+  }
+  if (response.status === 404) return { unavailable: true, airports: [], suggested: null, country: null, maxKm: null, note: null }
+  let body = null
+  try {
+    body = await response.json()
+  } catch {
+    // handled below
+  }
+  if (!response.ok) {
+    const error = body && typeof body.error === 'object' ? body.error : null
+    throw new AirportSearchError((error && typeof error.message === 'string' && error.message) || `Nearby airports failed (${response.status}).`, {
+      code: (error && error.code) || 'search_failed', retryable: error ? error.retryable === true : response.status >= 500, status: response.status,
+    })
+  }
+  try {
+    return { unavailable: false, ...sanitizeNearby(body) }
+  } catch (err) {
+    throw new AirportSearchError(err.message, { code: 'bad_response' })
   }
 }

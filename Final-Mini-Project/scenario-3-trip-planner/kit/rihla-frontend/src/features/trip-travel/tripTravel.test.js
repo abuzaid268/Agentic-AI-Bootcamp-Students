@@ -49,8 +49,20 @@ describe('FROM -> TO', () => {
   })
 
   it('starts the flight form from the trip: city names as hints, never airports', () => {
-    assert.deepEqual(travelInfoPlan(trip).flights, { departureHint: 'London', departureCountry: 'GB', arrivalHint: 'Amman',
+    const { departurePlace, arrivalPlace, ...rest } = travelInfoPlan(trip).flights
+    assert.deepEqual(rest, { departureHint: 'London', departureCountry: 'GB', arrivalHint: 'Amman',
       departureDate: '2026-11-06', returnDate: '2026-11-09', adults: 2 })
+    // the chosen cities (coordinates and country) go along so FlightSearch can list airports near them: cities, not airports
+    assert.deepEqual([departurePlace.name, departurePlace.countryCode], ['London', 'GB'])
+    assert.deepEqual([arrivalPlace.name, arrivalPlace.countryCode], ['Amman', 'JO'])
+    assert.ok(Number.isFinite(arrivalPlace.latitude) && Number.isFinite(arrivalPlace.longitude))
+    for (const place of [departurePlace, arrivalPlace]) assert.ok(!('iata' in place) && !('airport' in place))
+  })
+
+  it('passes no place for a side the traveller did not choose', () => {
+    const plan = travelInfoPlan({ ...trip, origin: null, destination: null, destinationText: 'Amman, Jordan' })
+    assert.equal(plan.flights.departurePlace, null)
+    assert.equal(plan.flights.arrivalPlace, null) // a typed name has no coordinates: it is never geocoded here
   })
 
   it('works without FROM: flights stay optional and start empty on that side', () => {
@@ -77,8 +89,8 @@ describe('FROM -> TO', () => {
     assert.equal(past.flights.returnDate, '')
     assert.equal(past.weatherStatus, 'past')
     assert.equal(placeFrom({ name: '' }), null)
-    assert.deepEqual(placeFrom({ name: 'X', latitude: 'north', longitude: 500, countryCode: 'GBR' }),
-      { name: 'X', country: null, countryCode: null, latitude: null, longitude: null, label: 'X' })
+    assert.deepEqual(placeFrom({ id: 'osm:1', name: 'X', latitude: 'north', longitude: 500, countryCode: 'GBR' }),
+      { id: null, name: 'X', region: null, country: null, countryCode: null, latitude: null, longitude: null, label: 'X' })
   })
 
   it('a new trip starts the flight form over; the same trip keeps it', () => {

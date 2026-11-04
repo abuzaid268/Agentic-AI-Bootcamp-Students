@@ -1,0 +1,92 @@
+{
+ "point": {
+  "latitude": 31.76904,
+  "longitude": 35.21633
+ },
+ "country": {
+  "code": "IL",
+  "name": "Israel"
+ },
+ "max_km": 150,
+ "other_country_km": 80,
+ "count": 4,
+ "airports": [
+  {
+   "id": "ourairports:4411",
+   "name": "Ben Gurion International Airport",
+   "city": "Tel Aviv",
+   "region": "Central District",
+   "country": "Israel",
+   "country_code": "IL",
+   "iata": "TLV",
+   "icao": "LLBG",
+   "latitude": 32.0114,
+   "longitude": 34.8867,
+   "type": "large_airport",
+   "scheduled_service": true,
+   "label": "Ben Gurion International Airport (TLV), Tel Aviv, Israel",
+   "distance_km": 41.2,
+   "in_country": true
+  },
+  {
+   "id": "ourairports:5212",
+   "name": "Queen Alia International Airport",
+   "city": "Amman",
+   "region": "Amman Governorate",
+   "country": "Jordan",
+   "country_code": "JO",
+   "iata": "AMM",
+   "icao": "OJAI",
+   "latitude": 31.7226,
+   "longitude": 35.9932,
+   "type": "large_airport",
+   "scheduled_service": true,
+   "label": "Queen Alia International Airport (AMM), Amman, Jordan",
+   "distance_km": 73.6,
+   "in_country": false
+  },
+  {
+   "id": "ourairports:5213",
+   "name": "Marka International (Amman Civil) Airport",
+   "city": "Amman",
+   "region": "Amman Governorate",
+   "country": "Jordan",
+   "country_code": "JO",
+   "iata": "ADJ",
+   "icao": "OJAM",
+   "latitude": 31.9727,
+   "longitude": 35.9916,
+   "type": "large_airport",
+   "scheduled_service": true,
+   "label": "Marka International (Amman Civil) Airport (ADJ), Amman, Jordan",
+   "distance_km": 76.6,
+   "in_country": false
+  },
+  {
+   "id": "ourairports:4417",
+   "name": "Uri Michaeli Haifa International Airport",
+   "city": "Haifa",
+   "region": "Haifa District",
+   "country": "Israel",
+   "country_code": "IL",
+   "iata": "HFA",
+   "icao": "LLHA",
+   "latitude": 32.81022,
+   "longitude": 35.04372,
+   "type": "medium_airport",
+   "scheduled_service": true,
+   "label": "Uri Michaeli Haifa International Airport (HFA), Haifa, Israel",
+   "distance_km": 116.9,
+   "in_country": true
+  }
+ ],
+ "suggested": null,
+ "note": "Ranked by straight-line distance only. The nearest airport is not always the best one for your route: check which airports have the flights you need.",
+ "source": {
+  "provider": "OurAirports",
+  "url": "https://ourairports.com/data/",
+  "licence": "Public domain",
+  "attribution": "Airport data from OurAirports (ourairports.com), released to the public domain.",
+  "data_date": "2026-11-02"
+ }
+}

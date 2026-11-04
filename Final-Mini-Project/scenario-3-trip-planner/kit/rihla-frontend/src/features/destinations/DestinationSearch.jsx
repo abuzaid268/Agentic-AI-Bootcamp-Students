@@ -1,7 +1,10 @@
-import { useEffect, useId, useState } from 'react'
+import { Fragment, useEffect, useId, useRef, useState } from 'react'
 import { MapPin, X } from 'lucide-react'
 import { searchDestinations } from './destinationsApi.js'
-import { destinationText, moveHighlight, placeDetails, shouldSearch, statusMessage } from './searchState.js'
+import {
+  areaSentence, destinationText, destinationValidity, initialHighlight, listOptions, moveHighlight, placeDetails,
+  shouldSearch, statusMessage,
+} from './searchState.js'
 
 // Two looks: "dark" for the home page's glass form, "light" for white panels.
 const TONES = {
@@ -37,6 +40,11 @@ const TONES = {
  *  - onSelect(destination | null): the chosen city { id, name, region, country, countryCode, latitude,
  *    longitude, timezone, label, ... }, or null as soon as the text no longer matches a chosen city
  *  - debounceMs (300), limit (8), tone ("dark" | "light"), fetchImpl (tests)
+ *
+ * A country's or a region's name ("Italy", "Georgia", "Texas") is not a city, and a name several places share
+ * ("Paris": France or Texas) is not one place: the list then offers the cities there first, nothing is highlighted
+ * (Enter does not pick a namesake town such as "Italy, Texas"), and a required box keeps the form from being sent
+ * (the browser's own validation) until the traveller chooses.
  */
 export default function DestinationSearch({
   label = 'Destination',
@@ -65,11 +73,14 @@ export default function DestinationSearch({
   const [results, setResults] = useState([])
   const [ambiguous, setAmbiguous] = useState(false)
   const [scope, setScope] = useState('worldwide') // 'popular' for one or two letters (the server's popular list)
+  const [areas, setAreas] = useState([]) // the text names countries or regions: [{ kind, name, suggestions, ... }]
+  const [answered, setAnswered] = useState('') // the text the answer on screen belongs to
   const [status, setStatus] = useState('idle') // idle | loading | ready | error
   const [error, setError] = useState('')
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(-1)
   const [attempt, setAttempt] = useState(0) // bumped by "Try again"
+  const input = useRef(null)
 
   const searchable = shouldSearch(text) && !(selected && destinationText(selected) === text)
 
@@ -84,11 +95,17 @@ export default function DestinationSearch({
         setResults(answer.results)
         setAmbiguous(answer.ambiguous)
         setScope(answer.scope)
-        setHighlight(answer.results.length ? 0 : -1)
+        setAreas(answer.areas)
+        setAnswered(text)
+        setHighlight(initialHighlight({
+          count: listOptions(answer.results, answer.areas).length, ambiguous: answer.ambiguous, areas: answer.areas,
+        }))
         setStatus('ready')
       } catch (err) {
         if (controller.signal.aborted) return // a newer search replaced this one
         setResults([])
+        setAreas([])
+        setAnswered('')
         setHighlight(-1)
         setStatus('error')
         setError(err instanceof Error ? err.message : 'City search failed.')
@@ -102,6 +119,8 @@ export default function DestinationSearch({
 
   const reset = () => {
     setResults([])
+    setAreas([])
+    setAnswered('')
     setAmbiguous(false)
     setStatus('idle')
     setError('')
@@ -141,18 +160,29 @@ export default function DestinationSearch({
     onTextChange?.('')
   }
 
-  const showList = open && results.length > 0 && !disabled
+  const options = listOptions(results, areas) // the cities in the named areas first, then the places found
+  const showList = open && options.length > 0 && !disabled
+
+  // A required box holding a country, a region or a shared name (and no chosen city) stops the form.
+  const validity = required ? destinationValidity({
+    text, answered, areas, ambiguous, selected, searchable, status,
+  }) : ''
+  useEffect(() => {
+    input.current?.setCustomValidity(validity)
+  }, [validity])
 
   const handleKeyDown = (event) => {
     const { key } = event
     if (['ArrowDown', 'ArrowUp'].includes(key) || (showList && ['Home', 'End'].includes(key))) {
-      if (!results.length) return
+      if (!options.length) return
       event.preventDefault()
       setOpen(true)
-      setHighlight((current) => moveHighlight(current, key, results.length))
-    } else if (key === 'Enter' && showList && results[highlight]) {
+      setHighlight((current) => moveHighlight(current, key, options.length))
+    } else if (key === 'Enter' && showList && options[highlight]) {
       event.preventDefault() // choose the city instead of submitting the form
-      choose(results[highlight])
+      choose(options[highlight])
+    } else if (key === 'Enter' && showList) {
+      event.preventDefault() // the list is open and nothing is chosen yet: never send the form from here
     } else if (key === 'Escape' && open) {
       event.preventDefault()
       setOpen(false)
@@ -161,7 +191,9 @@ export default function DestinationSearch({
     }
   }
 
-  const message = statusMessage({ status, count: results.length, error, ambiguous, searchable, scope })
+  const message = statusMessage({ status, count: results.length, error, ambiguous, searchable, scope, areas })
+  // where the places found start, after the suggested cities
+  const firstFound = areas.length ? listOptions([], areas).length : -1
   const optionId = (index) => `${listId}-${index}`
 
   return (
@@ -172,6 +204,7 @@ export default function DestinationSearch({
       <div className={styles.box}>
         <MapPin size={18} className={styles.icon} aria-hidden="true" />
         <input
+          ref={input}
           id={inputId}
           name={name}
           type="text"
@@ -190,7 +223,7 @@ export default function DestinationSearch({
           placeholder={placeholder}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onFocus={() => results.length && setOpen(true)}
+          onFocus={() => options.length && setOpen(true)}
           onBlur={() => setOpen(false)}
           className={styles.input}
         />
@@ -214,28 +247,41 @@ export default function DestinationSearch({
         hidden={!showList}
         className="absolute left-0 right-0 z-30 mt-2 max-h-72 overflow-y-auto rounded-2xl border border-[#d5e6e9] bg-white py-1 text-left text-[#1c3544] shadow-xl"
       >
-        {results.map((destination, index) => (
-          <li
-            key={destination.id}
-            id={optionId(index)}
-            role="option"
-            aria-selected={index === highlight}
-            onMouseDown={(event) => event.preventDefault()} // keep focus in the input
-            onMouseEnter={() => setHighlight(index)}
-            onClick={() => choose(destination)}
-            className={`flex cursor-pointer items-start gap-3 px-4 py-2.5 text-sm ${
-              index === highlight ? 'bg-[#e5f4f4]' : 'hover:bg-[#f1f7f8]'
-            }`}
-          >
-            <MapPin size={15} className="mt-0.5 shrink-0 text-[#3c8992]" aria-hidden="true" />
-            <span className="min-w-0">
-              <span className="block font-semibold">{destination.name}</span>
-              <span className="block truncate text-xs text-[#6b8791]">
-                {placeDetails(destination) || 'Region unknown'}
-                {destination.countryCode ? ` · ${destination.countryCode}` : ''}
-              </span>
-            </span>
+        {areas.length > 0 && (
+          <li role="presentation" className="px-4 pb-1 pt-2 text-xs font-semibold text-[#456774]">
+            {areaSentence(areas)}.{' '}
+            {listOptions([], areas).length ? 'Choose a city:' : 'Type the city you want to visit.'}
           </li>
+        )}
+        {options.map((destination, index) => (
+          <Fragment key={destination.id}>
+            {index === firstFound && firstFound > 0 && (
+              <li role="presentation"
+                className="border-t border-[#edf2f3] px-4 pb-1 pt-2 text-xs font-semibold text-[#456774]">
+                Other places with this name
+              </li>
+            )}
+            <li
+              id={optionId(index)}
+              role="option"
+              aria-selected={index === highlight}
+              onMouseDown={(event) => event.preventDefault()} // keep focus in the input
+              onMouseEnter={() => setHighlight(index)}
+              onClick={() => choose(destination)}
+              className={`flex cursor-pointer items-start gap-3 px-4 py-2.5 text-sm ${
+                index === highlight ? 'bg-[#e5f4f4]' : 'hover:bg-[#f1f7f8]'
+              }`}
+            >
+              <MapPin size={15} className="mt-0.5 shrink-0 text-[#3c8992]" aria-hidden="true" />
+              <span className="min-w-0">
+                <span className="block font-semibold">{destination.name}</span>
+                <span className="block truncate text-xs text-[#6b8791]">
+                  {placeDetails(destination) || 'Region unknown'}
+                  {destination.countryCode ? ` · ${destination.countryCode}` : ''}
+                </span>
+              </span>
+            </li>
+          </Fragment>
         ))}
         <li role="presentation" className="border-t border-[#edf2f3] px-4 pb-1 pt-2 text-[10px] text-[#91a3ab]">
           City data: GeoNames (CC BY 4.0) via Open-Meteo

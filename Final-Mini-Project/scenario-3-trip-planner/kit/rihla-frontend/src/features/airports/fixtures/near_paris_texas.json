@@ -1,0 +1,58 @@
+{
+ "point": {
+  "latitude": 33.66094,
+  "longitude": -95.55551
+ },
+ "country": {
+  "code": "US",
+  "name": "United States"
+ },
+ "max_km": 150,
+ "other_country_km": 80,
+ "count": 2,
+ "airports": [
+  {
+   "id": "ourairports:3937",
+   "name": "Tyler Pounds Regional Airport",
+   "city": "Tyler",
+   "region": "Texas",
+   "country": "United States",
+   "country_code": "US",
+   "iata": "TYR",
+   "icao": "KTYR",
+   "latitude": 32.3541,
+   "longitude": -95.4024,
+   "type": "medium_airport",
+   "scheduled_service": true,
+   "label": "Tyler Pounds Regional Airport (TYR), Tyler, United States",
+   "distance_km": 146.0,
+   "in_country": true
+  },
+  {
+   "id": "ourairports:3936",
+   "name": "Texarkana Regional Airport (Webb Field)",
+   "city": "Texarkana",
+   "region": "Arkansas",
+   "country": "United States",
+   "country_code": "US",
+   "iata": "TXK",
+   "icao": "KTXK",
+   "latitude": 33.4537,
+   "longitude": -93.991,
+   "type": "medium_airport",
+   "scheduled_service": true,
+   "label": "Texarkana Regional Airport (Webb Field) (TXK), Texarkana, United States",
+   "distance_km": 146.8,
+   "in_country": true
+  }
+ ],
+ "suggested": null,
+ "note": "Ranked by straight-line distance only. The nearest airport is not always the best one for your route: check which airports have the flights you need.",
+ "source": {
+  "provider": "OurAirports",
+  "url": "https://ourairports.com/data/",
+  "licence": "Public domain",
+  "attribution": "Airport data from OurAirports (ourairports.com), released to the public domain.",
+  "data_date": "2026-11-02"
+ }
+}

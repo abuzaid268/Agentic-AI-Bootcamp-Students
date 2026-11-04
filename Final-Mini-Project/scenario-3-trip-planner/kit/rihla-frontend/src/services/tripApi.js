@@ -1,5 +1,6 @@
 import { requireSession } from '../auth/authApi.js'
 import { sendApproval } from './approval.js'
+import { apiPlace } from '../features/trip-travel/tripTravelState.js'
 
 function buildTripMessage(trip) {
   const details = [
@@ -24,6 +25,9 @@ function buildTripMessage(trip) {
 // The form's own fields, sent as they are: the backend uses them exactly (the
 // selected interests are never re-read from the message by an LLM).
 export function buildTripForm(trip) {
+  // The city chosen in the destination box (GeoNames id, country code, coordinates), when there is one: the server
+  // checks it against the text and researches that very place, not a namesake (app/destinations/identity.py).
+  const place = apiPlace(trip.destinationPlace)
   return {
     destination: trip.destination.trim(),
     start_date: trip.departureDate,
@@ -33,6 +37,7 @@ export function buildTripForm(trip) {
     currency: 'USD',
     interests: [...(trip.interests || [])],
     preferences: trip.customPreferences?.trim() || null,
+    ...(place ? { place } : {}),
   }
 }
 

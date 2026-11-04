@@ -32,9 +32,12 @@ Trip page (TripDashboard.jsx)
     FROM → TO summary, dates, travellers
     WeatherSummary for TO's coordinates and the trip days that have a forecast
     "Compare flights (optional)": FlightSearch, closed until opened
-      departure country (from FROM) → departure airport (the traveller picks)
-      arrival airport (the box starts with TO's city name; the traveller picks)
-      dates and adults from the trip; DEMO / TEST / LIVE badge; cheapest offer marked
+      departure country (from FROM) → departure airport, with the airports near FROM listed (GET /api/airports/near)
+      arrival country (from TO) → arrival airport, with the airports near TO listed; other-country ones marked
+      the traveller picks; an airport is preselected only when exactly one clearly qualifies, and stays editable
+      dates and adults from the trip; DEMO / TEST / LIVE badge and a "simulated price" line on every card;
+      cheapest and fastest offers marked, with a one-line comparison
+    (wrapped in TravelInfoBoundary: if it fails to render, a notice replaces it and the itinerary is not affected)
   Sources (aiResult.citations)
 ```
 

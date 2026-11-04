@@ -402,3 +402,89 @@ def test_production_without_a_licence_decision_refuses_short_queries_too(no_lice
     provider = Provider(PARI)
     r = api(provider, environment="production").get("/api/destinations", params={"q": "Am"})
     assert r.status_code == 503 and r.json()["error"]["code"] == "destinations_unavailable" and provider.requests == []
+
+
+# ------------------------------------------------------------------ countries and regions are not cities
+from app.destinations.areas import area_matches  # noqa: E402
+from app.destinations.service import provider_country_names  # noqa: E402
+
+# A real Open-Meteo answer for "Italy": first the country (PCLI), then namesake places such as Italy, Texas.
+ITALY = json.loads((Path(__file__).parent / "fixtures" / "open_meteo_geocoding_italy.json").read_text(encoding="utf-8"))
+
+
+def test_a_country_name_is_reported_as_an_area_with_city_suggestions_in_it():
+    body = api(Provider(ITALY)).get("/api/destinations", params={"q": "Italy"}).json()
+    [italy] = body["areas"]
+    assert (italy["kind"], italy["name"], italy["country_code"]) == ("country", "Italy", "IT")
+    names = [p["name"] for p in italy["suggestions"]]
+    assert names[:2] == ["Rome", "Milan"] and {"Florence", "Venice"} <= set(names)
+    assert all(p["country_code"] == "IT" for p in italy["suggestions"])  # real places in Italy, from the bundled list
+
+
+def test_the_country_record_is_never_a_place_and_its_namesake_town_is_not_presented_as_it():
+    body = api(Provider(ITALY)).get("/api/destinations", params={"q": "italy"}).json()
+    assert all(p["feature_code"].startswith("PPL") for p in body["results"])
+    texas = next(p for p in body["results"] if p["label"] == "Italy, Texas, United States")
+    assert texas["country_code"] == "US" and texas["ambiguous_name"] is True
+    assert body["ambiguous"] is True  # several places are called Italy: the box asks before choosing
+
+
+@pytest.mark.parametrize("query, expected", [
+    ("Italy", [("country", "Italy", "IT")]),
+    ("Georgia", [("country", "Georgia", "GE"), ("region", "Georgia", "US")]),  # the country and the US state
+    ("Texas", [("region", "Texas", "US")]),
+    ("bavaria", [("region", "Bavaria", "DE")]),
+    ("New York", [("region", "New York", "US")]),  # the state; the city is a place in the results
+    ("Washington", [("region", "Washington", "US")]),  # the state; D.C. is a place in the results
+    ("Paris", []), ("London", []), ("Santiago", []),  # cities only
+    ("Ital", []), ("Italy, Texas", []), ("", []),  # only a whole name counts
+])
+def test_areas_are_found_by_their_whole_name_worldwide(query, expected):
+    assert [(a["kind"], a["name"], a["country_code"]) for a in area_matches(query)] == expected
+
+
+def test_the_providers_own_spelling_of_a_country_counts_too():
+    spelled = provider_country_names([{"name": "Republic of Türkiye", "feature_code": "PCLI", "country_code": "tr"},
+                                      {"name": "Ankara", "feature_code": "PPLC", "country_code": "TR"}])
+    assert spelled == {"Republic of Türkiye": "TR"}
+    assert [a["country_code"] for a in area_matches("republic of turkiye", spelled)] == ["TR"]
+
+
+def test_a_region_suggests_the_places_found_in_it():
+    new_york = {"results": [{"id": 5128581, "name": "New York", "latitude": 40.71427, "longitude": -74.00597,
+                             "feature_code": "PPL", "country_code": "US", "country": "United States",
+                             "admin1": "New York", "population": 8804190},
+                            {"id": 2641839, "name": "New York", "latitude": 54.5, "longitude": -1.6,
+                             "feature_code": "PPL", "country_code": "GB", "country": "United Kingdom",
+                             "admin1": "England", "population": None}]}
+    body = api(Provider(new_york)).get("/api/destinations", params={"q": "New York"}).json()
+    [state] = body["areas"]
+    assert state["kind"] == "region" and [p["country_code"] for p in state["suggestions"]] == ["US"]
+    assert body["ambiguous"] is True  # New York, United States and New York, England
+
+
+def test_a_city_search_has_no_area_and_its_namesakes_are_flagged():
+    body = api(Provider(PARI)).get("/api/destinations", params={"q": "Pari"}).json()
+    assert body["areas"] == [] and body["ambiguous"] is True  # Paris, France and Paris, Texas
+    labels = [p["label"] for p in body["results"]]
+    assert labels[0] == "Paris, Île-de-France Region, France" and "Paris, Texas, United States" in labels
+
+
+def test_the_area_answer_is_cached_too():
+    provider = Provider(ITALY)
+    client = api(provider)
+    client.get("/api/destinations", params={"q": "Italy"})
+    again = client.get("/api/destinations", params={"q": "ITALY"}).json()
+    assert again["cached"] is True and again["areas"][0]["country_code"] == "IT" and len(provider.requests) == 1
+
+
+def test_short_queries_have_no_area():
+    assert api(Provider(ITALY)).get("/api/destinations", params={"q": "It"}).json()["areas"] == []
+
+
+def test_a_country_without_popular_places_still_says_it_is_a_country():
+    chad = {"results": [{"id": 2434508, "name": "Chad", "latitude": 15.5, "longitude": 19.0, "feature_code": "PCLI",
+                         "country_code": "TD", "country": "Chad", "population": 17723315}]}
+    body = api(Provider(chad)).get("/api/destinations", params={"q": "Chad"}).json()
+    assert [(a["kind"], a["country_code"], a["suggestions"]) for a in body["areas"]] == [("country", "TD", [])]
+    assert body["results"] == []

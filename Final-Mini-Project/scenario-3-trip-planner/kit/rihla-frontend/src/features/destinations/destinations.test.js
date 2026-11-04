@@ -4,7 +4,8 @@ import { describe, it } from 'node:test'
 
 import { DestinationSearchError, searchDestinations } from './destinationsApi.js'
 import {
-  MAX_DESTINATION_TEXT, destinationText, moveHighlight, normalizeQuery, placeDetails, sanitizeDestination, shouldSearch,
+  MAX_DESTINATION_TEXT, areaSentence, destinationText, destinationValidity, initialHighlight, listOptions, moveHighlight,
+  normalizeQuery, placeDetails, sanitizeAreas, sanitizeDestination, shouldSearch,
   statusMessage,
 } from './searchState.js'
 
@@ -190,6 +191,92 @@ describe('one or two letters: popular destinations', () => {
   it('keeps the scope in the component and shows its message', () => {
     const source = readFileSync(new URL('./DestinationSearch.jsx', import.meta.url), 'utf8')
     assert.match(source, /setScope\(answer\.scope\)/)
-    assert.match(source, /statusMessage\(\{[^}]*scope \}\)/)
+    assert.match(source, /statusMessage\(\{[^}]*scope, areas \}\)/)
+  })
+})
+
+describe('countries, regions and shared names need an explicit choice', () => {
+  // The backend's answers (app/destinations, from recorded Open-Meteo answers): "Italy" names a country, "Georgia" a
+  // country and a US state; Italy, Texas and Paris, Texas are towns that share a name with something better known.
+  const city = (id, name, region, country, cc, lat, lon, extra = {}) => ({ id: `geonames:${id}`, provider_id: id, name,
+    region, country, country_code: cc, latitude: lat, longitude: lon,
+    label: [name, region, country].filter(Boolean).join(', '), ...extra })
+  const ROME = city(3169070, 'Rome', 'Lazio', 'Italy', 'IT', 41.89193, 12.51133)
+  const MILAN = city(3173435, 'Milan', 'Lombardy', 'Italy', 'IT', 45.46427, 9.18951)
+  const TBILISI = city(611717, 'Tbilisi', null, 'Georgia', 'GE', 41.69411, 44.83368)
+  const TEXAS_TOWN = city(4703811, 'Italy', 'Texas', 'United States', 'US', 32.18404, -96.88472, { ambiguous_name: true })
+  const ITALY = { query: 'Italy', count: 1, results: [TEXAS_TOWN], ambiguous: true, scope: 'worldwide',
+    areas: [{ kind: 'country', name: 'Italy', country_code: 'IT', country: 'Italy', suggestions: [ROME, MILAN] }] }
+  const GEORGIA = [{ kind: 'country', name: 'Georgia', country_code: 'GE', country: 'Georgia', suggestions: [TBILISI] },
+    { kind: 'region', name: 'Georgia', country_code: 'US', country: 'United States', suggestions: [] }]
+
+  it('reads the areas and the cities suggested in them', async () => {
+    const answer = await searchDestinations('Italy', { fetchImpl: fakeFetch(200, ITALY).impl })
+    assert.deepEqual(answer.areas.map((a) => [a.kind, a.name, a.countryCode]), [['country', 'Italy', 'IT']])
+    assert.deepEqual(answer.areas[0].suggestions.map((d) => d.label), ['Rome, Lazio, Italy', 'Milan, Lombardy, Italy'])
+    assert.deepEqual((await searchDestinations('Pari', { fetchImpl: fakeFetch(200, ANSWER).impl })).areas, []) // older answer
+  })
+
+  it('says what the name is: a country, a state or region, or both', () => {
+    const areas = sanitizeAreas(GEORGIA)
+    assert.equal(areaSentence(areas), 'Georgia is a country, and a state or region in United States')
+    assert.equal(areaSentence(sanitizeAreas(ITALY.areas)), 'Italy is a country')
+    assert.equal(statusMessage({ status: 'ready', count: 3, searchable: true, areas }),
+      'Georgia is a country, and a state or region in United States: choose a city, such as Tbilisi.')
+  })
+
+  it('lists the suggested cities first, then the namesake places', () => {
+    const italy = sanitizeAreas(ITALY.areas)
+    assert.deepEqual(listOptions([sanitizeDestination(TEXAS_TOWN)], italy).map((d) => d.label),
+      ['Rome, Lazio, Italy', 'Milan, Lombardy, Italy', 'Italy, Texas, United States'])
+    assert.deepEqual(listOptions([sanitizeDestination(ROME)], italy).map((d) => d.name), ['Rome', 'Milan'])
+  })
+
+  it('highlights nothing for an area or a shared name, so Enter never picks a place for the traveller', () => {
+    assert.equal(initialHighlight({ count: 3, ambiguous: true, areas: sanitizeAreas(ITALY.areas) }), -1)
+    assert.equal(initialHighlight({ count: 3, ambiguous: false, areas: sanitizeAreas(GEORGIA) }), -1)
+    assert.equal(initialHighlight({ count: 3, ambiguous: true }), -1) // London: England or Ontario
+    assert.equal(initialHighlight({ count: 3, ambiguous: false }), 0) // one clear best match
+  })
+
+  it('keeps the form from being sent with a country, a region or a shared name', () => {
+    assert.equal(destinationValidity({ text: 'Italy', answered: 'Italy', areas: sanitizeAreas(ITALY.areas) }),
+      'Italy is a country. Choose a city, for example Rome, from the list.')
+    assert.match(destinationValidity({ text: 'georgia', answered: 'Georgia', areas: sanitizeAreas(GEORGIA) }),
+      /^Georgia is a country, and a state or region in United States\./)
+    assert.equal(destinationValidity({ text: 'London', answered: 'London', ambiguous: true }),
+      'Several places are called London. Choose the one you mean from the list.')
+  })
+
+  it('lets the form go once a city is chosen, or when the name is one clear place', () => {
+    const rome = sanitizeDestination(ROME)
+    assert.equal(destinationValidity({ text: 'Rome, Lazio, Italy', answered: 'Italy', areas: sanitizeAreas(ITALY.areas),
+      selected: rome }), '')
+    assert.equal(destinationValidity({ text: 'Paris, Texas', answered: 'Paris, Texas', ambiguous: false }), '')
+    assert.equal(destinationValidity({ text: '', answered: '' }), '')
+  })
+
+  it('waits while the text is being checked, but never blocks when the search failed', () => {
+    assert.equal(destinationValidity({ text: 'London', answered: 'Lond', searchable: true, status: 'loading' }),
+      'Wait a moment: Rihla is checking this destination.')
+    assert.equal(destinationValidity({ text: 'London', answered: '', searchable: true, status: 'error' }), '')
+    assert.equal(destinationValidity({ text: '12', answered: '', searchable: false }), '') // nothing to search
+  })
+
+  it('drops unusable areas instead of guessing', () => {
+    assert.deepEqual(sanitizeAreas([{ kind: 'continent', name: 'Europe', country_code: 'EU' },
+      { kind: 'country', name: 'Italy', country_code: 'ITA' }, null]), [])
+    assert.deepEqual(sanitizeAreas('Italy'), [])
+    assert.deepEqual(sanitizeAreas([{ kind: 'country', name: 'Italy', country_code: 'IT', suggestions: [{ id: 'x' }] }])[0]
+      .suggestions, [])
+  })
+
+  it('the box uses all of it: no auto-highlight, no form submit from an open list, browser validity', () => {
+    const source = readFileSync(new URL('./DestinationSearch.jsx', import.meta.url), 'utf8')
+    assert.match(source, /setHighlight\(initialHighlight\(\{/)
+    assert.match(source, /key === 'Enter' && showList\) \{\s*event\.preventDefault\(\)/)
+    assert.match(source, /destinationValidity\(\{\s*text, answered, areas, ambiguous, selected, searchable, status,\s*\}\)/)
+    assert.match(source, /setCustomValidity\(validity\)/)
+    assert.match(source, /setAnswered\(text\)/)
   })
 })

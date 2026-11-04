@@ -37,6 +37,7 @@ const KINDS = {
  *  - kind: "departure" | "arrival" (icon, default label and the clear button's name)
  *  - label, placeholder, name, required, disabled, id
  *  - defaultValue: the starting text (the component keeps its own text after that)
+ *  - initialAirport: an airport that starts selected (its label is the text); remount with a new `key` to change it
  *  - onTextChange(text): every change of the typed text (also when an airport is chosen: its label)
  *  - onSelect(airport | null): the chosen airport { id, name, city, region, country, countryCode, iata, icao,
  *    latitude, longitude, type, scheduledService, label }, or null as soon as the text no longer matches it.
@@ -50,6 +51,7 @@ export default function AirportSearch({
   label,
   placeholder = 'City, airport or code, e.g. London or LHR',
   defaultValue = '',
+  initialAirport = null,
   onTextChange,
   onSelect,
   scheduledOnly = false,
@@ -72,8 +74,11 @@ export default function AirportSearch({
   const KindIcon = meta.icon
   const fieldLabel = label || meta.label
 
-  const [text, setText] = useState(defaultValue)
-  const [selected, setSelected] = useState(null)
+  // An airport chosen for the traveller (a suggestion they picked, or the only one that qualified) starts selected
+  // and is shown as an ordinary choice: typing replaces it, and the parent already holds it (it does not get an
+  // onSelect for the starting value).
+  const [text, setText] = useState(initialAirport ? initialAirport.label : defaultValue)
+  const [selected, setSelected] = useState(initialAirport)
   const [results, setResults] = useState([])
   const [ambiguous, setAmbiguous] = useState(false)
   const [status, setStatus] = useState('idle') // idle | loading | ready | error

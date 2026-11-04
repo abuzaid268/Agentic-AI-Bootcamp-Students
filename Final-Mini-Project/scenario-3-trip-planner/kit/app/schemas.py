@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
+from app.destinations.identity import DestinationPlace, check_destination, research_destination
+
 # Longer trips are refused with a clear message, not planned badly. Measured on live Istanbul data (the city with the
 # most listings): 30 days took 255 s with sightseeing on all 30 days; 60 days took 202 s but only 49 of 60 days had
 # any, because the sources list about 50 places per city (find_attractions returns at most 50). Past 30 days a plan
@@ -25,9 +27,14 @@ class TripForm(BaseModel):
     currency: str = Field(default="USD", pattern=r"^[A-Za-z]{3}$")
     interests: list[str] = Field(default_factory=list, max_length=8)
     preferences: str | None = Field(default=None, max_length=500)
+    # Optional: the city chosen in the destination box (GeoNames id, country code, coordinates). Older clients
+    # send only the text. app/destinations/identity.py checks both against each other (docs/destinations.md).
+    place: DestinationPlace | None = None
 
     @model_validator(mode="after")
     def _dates(self):
+        check_destination(self.destination, self.place)
+        self.destination = research_destination(self.destination, self.place)  # "Paris" -> "Paris, Texas, ..."
         if self.end_date < self.start_date:
             raise ValueError("The return date is before the departure date.")
         if (self.end_date - self.start_date).days + 1 > MAX_TRIP_DAYS:

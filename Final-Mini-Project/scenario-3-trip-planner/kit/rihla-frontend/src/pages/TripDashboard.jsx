@@ -9,7 +9,7 @@ import { AuthRequiredError } from '../auth/authApi'
 import { useAuth } from '../auth/authContext'
 import { applyRevision, revisionBlockedReason } from '../services/tripRevision'
 import WhatIfPanel from './WhatIfPanel'
-import { TripTravelInfo } from '../features/trip-travel'
+import { TravelInfoBoundary, TripTravelInfo } from '../features/trip-travel'
 import { sourceLinks } from '../services/citations'
 import { SAMPLE_HERO_IMAGE, SAMPLE_TRIP } from '../data/sampleTrip'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -761,6 +761,7 @@ export default function TripDashboard() {
                 changes the itinerary or its budget. */}
             {isReal && !sampleEntry && (
               <div className="mt-7">
+                <TravelInfoBoundary>
                 <TripTravelInfo
                   destination={trip.destinationPlace || null}
                   destinationText={trip.destination || view.destination}
@@ -769,6 +770,7 @@ export default function TripDashboard() {
                   endDate={trip.returnDate || planDays[planDays.length - 1]?.date || ''}
                   travellers={Number(trip.travellers) || 1}
                 />
+                </TravelInfoBoundary>
               </div>
             )}
           </div>

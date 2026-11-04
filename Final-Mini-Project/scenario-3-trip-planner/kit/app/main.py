@@ -19,6 +19,7 @@ from app.airports import install_airports
 from app.auth import current_user, install_auth, traveller_id_for_request
 from app.destinations import install_destinations
 from app.flights import install_flights
+from app.weather import install_weather
 from app.approval_policy import ACCEPTANCE_MODES, APPROVABLE_STATUSES, acceptance, approval_eligibility
 from app.traveller_memory import (describe_preferences, lasting_preferences, remember, session_preferences,
                                   traveller_id_from)
@@ -32,6 +33,7 @@ install_auth(app)
 install_destinations(app)
 install_flights(app)
 install_airports(app)
+install_weather(app)  # GET /api/weather, GET /api/weather/status (docs/weather.md)
 
 # uvicorn's own error logger: printed in the backend console.
 logger = logging.getLogger("uvicorn.error")

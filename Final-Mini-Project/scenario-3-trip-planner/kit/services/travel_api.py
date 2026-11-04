@@ -137,7 +137,10 @@ def operation_for(method: str, path: str) -> str:
 @app.middleware("http")
 async def request_log(request: Request, call_next):
     t0 = time.perf_counter()
-    response = await call_next(request)
+    # All the upstream calls of one request share one budget (td.REQUEST_BUDGET_S), so a request cannot outlast the
+    # MCP tool waiting for it (services/travel_mcp.py).
+    with td.request_budget():
+        response = await call_next(request)
     path = request.url.path + (f"?{request.url.query}" if request.url.query else "")
     LOG.append({"ts": td.now_iso(), "method": request.method, "path": path, "status": response.status_code,
                 "ms": round((time.perf_counter() - t0) * 1000), "operation": operation_for(request.method, request.url.path)})

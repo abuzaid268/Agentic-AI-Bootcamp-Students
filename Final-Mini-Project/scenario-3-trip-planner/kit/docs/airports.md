@@ -141,6 +141,50 @@ Cache-Control: public, max-age=3600
 | 422 | FastAPI validation | `limit` is outside 1–10, `scheduled_only` is not a boolean, or `country` is longer than 2 characters |
 | 503 | `data_unavailable` | The bundled file is missing, has no rows, or lacks required columns. This is never an empty answer. The next search tries to load the file again. |
 
+### `GET /api/airports/near`: the airports near a chosen city
+
+For a place picked in the destination box (its coordinates and ISO country code): the airports a traveller can fly
+from, nearest first. Read-only, from the bundled data, no network.
+
+`GET /api/airports/near?lat=31.76904&lon=35.21633&country=IL`
+
+| Parameter | Required | |
+|---|---|---|
+| `lat`, `lon` | yes | The place's coordinates: numbers, -90 to 90 and -180 to 180. NaN, infinity, booleans and text that is not a plain number are refused. |
+| `country` | no | The place's ISO 3166-1 alpha-2 code, e.g. `IL`. It must be a country in the data. Without it nothing is suggested and `in_country` is null. |
+| `max_km` | no (150) | How far to look in the place's own country, 1–500 |
+| `limit` | no (6) | At most this many airports, 1–10 |
+
+- **Only airports with an IATA code, coordinates and OurAirports' scheduled-service flag** are listed, so every one can
+  be searched as a flight. The flag is data, **not a promise that an airline flies there or that a route exists**.
+- **Never mixes countries.** With a `country`, airports in that country are listed up to `max_km`; an airport in
+  another country only when within 80 km, and each carries `in_country: false`. Paris, Texas lists Tyler and
+  Texarkana (146 km) and no French airport; Paris, France lists Orly, Charles de Gaulle and Beauvais, and no Texan one.
+- **Ranked by straight-line distance only**, and the answer's `note` says that the nearest airport is not always the
+  best one for the route.
+- **`suggested`** is the id of the one airport that can be preselected, or null. It is set only when exactly one
+  airport qualifies: the only one with scheduled service within 100 km in the place's own country, within 60 km, with
+  none in another country within 80 km. It does not depend on `max_km` or `limit`. Tbilisi, Cusco and Santiago get
+  one; London, Paris, Rome, Istanbul, Tokyo, Amman and Jerusalem do not.
+- **An empty list is an honest answer** (no airport with scheduled service within reach); it is never filled in with
+  farther or same-named airports.
+
+```json
+{"point": {"latitude": 31.76904, "longitude": 35.21633}, "country": {"code": "IL", "name": "Israel"},
+ "max_km": 150.0, "other_country_km": 80.0, "count": 4, "suggested": null,
+ "airports": [{"iata": "TLV", "name": "Ben Gurion International Airport", "country_code": "IL", "distance_km": 41.2, "in_country": true, "…": "…"},
+              {"iata": "AMM", "name": "Queen Alia International Airport", "country_code": "JO", "distance_km": 73.6, "in_country": false, "…": "…"},
+              "…"],
+ "note": "Ranked by straight-line distance only. The nearest airport is not always the best one for your route: check which airports have the flights you need."}
+```
+
+| Status | `code` | When |
+|---|---|---|
+| 422 | `missing_coordinates`, `invalid_coordinates` | `lat` or `lon` is missing, not a number or out of range |
+| 422 | `invalid_country`, `unknown_country` | `country` is not 2 letters, or no airport in the data has it |
+| 422 | `invalid_distance`, `invalid_limit` | `max_km` or `limit` is not a number in range |
+| 503 | `data_unavailable` | As for the search route |
+
 ## Performance and limits
 
 **Loading:**

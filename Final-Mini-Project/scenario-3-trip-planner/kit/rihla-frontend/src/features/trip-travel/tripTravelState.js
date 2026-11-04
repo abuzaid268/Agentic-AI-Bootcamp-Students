@@ -21,12 +21,26 @@ export function placeFrom(raw) {
   const name = textOrNull(raw.name)
   if (!name) return null
   return {
+    id: typeof raw.id === 'string' && /^geonames:[1-9]\d{0,9}$/.test(raw.id) ? raw.id : null,
     name,
+    region: textOrNull(raw.region),
     country: textOrNull(raw.country),
     countryCode: typeof raw.countryCode === 'string' && /^[A-Za-z]{2}$/.test(raw.countryCode) ? raw.countryCode.toUpperCase() : null,
     latitude: isCoordinate(raw.latitude, 90) ? raw.latitude : null,
     longitude: isCoordinate(raw.longitude, 180) ? raw.longitude : null,
     label: textOrNull(raw.label) || [name, textOrNull(raw.country)].filter(Boolean).join(', '),
+  }
+}
+
+// The chosen city as POST /api/chat's optional trip.place (app/destinations/identity.py DestinationPlace), or null
+// when it is not a complete place (a trip saved before places were kept, or typed without choosing). The server
+// checks it against the destination text; without it, the request is the same as from an older client.
+export function apiPlace(raw) {
+  const place = placeFrom(raw)
+  if (!place?.id || !place.country || !place.countryCode || place.latitude === null || place.longitude === null) return null
+  return {
+    id: place.id, kind: 'city', name: place.name, region: place.region, country: place.country,
+    country_code: place.countryCode, latitude: place.latitude, longitude: place.longitude, label: place.label,
   }
 }
 
@@ -60,6 +74,10 @@ export function travelInfoPlan({ destination, destinationText, origin, startDate
     departureHint: from?.name || '',
     departureCountry: from?.countryCode || '',
     arrivalHint: to?.name || cityFromText(destinationText),
+    // The chosen cities themselves (coordinates and country): FlightSearch lists the airports near them and starts its
+    // country filters from them, so "Paris" in Texas is never searched among French airports.
+    departurePlace: from,
+    arrivalPlace: to,
     departureDate: isIsoDate(startDate) && startDate >= today ? startDate : '',
     returnDate: isIsoDate(endDate) && isIsoDate(startDate) && startDate >= today && endDate >= startDate ? endDate : '',
     adults: Number.isInteger(Number(travellers)) && Number(travellers) >= 1 ? Number(travellers) : 1,
@@ -75,6 +93,8 @@ export function travelInfoPlan({ destination, destinationText, origin, startDate
     flights,
     // A new trip (another place, other dates or party) starts the flight form over; the same trip keeps its choices.
     flightsKey: JSON.stringify([flights.departureHint, flights.departureCountry, flights.arrivalHint,
-      flights.departureDate, flights.returnDate, flights.adults]),
+      flights.departureDate, flights.returnDate, flights.adults,
+      [from?.id ?? null, from?.latitude ?? null, from?.longitude ?? null],
+      [to?.id ?? null, to?.latitude ?? null, to?.longitude ?? null]]),
   }
 }

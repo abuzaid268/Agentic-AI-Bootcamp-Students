@@ -1,0 +1,41 @@
+{
+ "point": {
+  "latitude": 41.69411,
+  "longitude": 44.83368
+ },
+ "country": {
+  "code": "GE",
+  "name": "Georgia"
+ },
+ "max_km": 150,
+ "other_country_km": 80,
+ "count": 1,
+ "airports": [
+  {
+   "id": "ourairports:6453",
+   "name": "Tbilisi International Airport",
+   "city": "Tbilisi",
+   "region": "Tbilisi",
+   "country": "Georgia",
+   "country_code": "GE",
+   "iata": "TBS",
+   "icao": "UGTB",
+   "latitude": 41.6692,
+   "longitude": 44.9547,
+   "type": "large_airport",
+   "scheduled_service": true,
+   "label": "Tbilisi International Airport (TBS), Tbilisi, Georgia",
+   "distance_km": 10.4,
+   "in_country": true
+  }
+ ],
+ "suggested": "ourairports:6453",
+ "note": "Ranked by straight-line distance only. The nearest airport is not always the best one for your route: check which airports have the flights you need.",
+ "source": {
+  "provider": "OurAirports",
+  "url": "https://ourairports.com/data/",
+  "licence": "Public domain",
+  "attribution": "Airport data from OurAirports (ourairports.com), released to the public domain.",
+  "data_date": "2026-11-02"
+ }
+}
