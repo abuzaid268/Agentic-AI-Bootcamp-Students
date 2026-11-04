@@ -1,0 +1,42 @@
+{
+  "_source": "Recorded once on 2026-11-02 from GET https://geocoding-api.open-meteo.com/v1/search?name=Pari&count=3&language=en&format=json (GeoNames data, CC BY 4.0, via Open-Meteo). Only the fields Rihla reads.",
+  "results": [
+    {
+      "id": 2988507,
+      "name": "Paris",
+      "latitude": 48.85341,
+      "longitude": 2.3488,
+      "feature_code": "PPLC",
+      "country_code": "FR",
+      "country": "France",
+      "admin1": "Île-de-France Region",
+      "population": 2138551,
+      "timezone": "Europe/Paris"
+    },
+    {
+      "id": 4717560,
+      "name": "Paris",
+      "latitude": 33.66094,
+      "longitude": -95.55551,
+      "feature_code": "PPLA2",
+      "country_code": "US",
+      "country": "United States",
+      "admin1": "Texas",
+      "population": 24782,
+      "timezone": "America/Chicago"
+    },
+    {
+      "id": 4647963,
+      "name": "Paris",
+      "latitude": 36.302,
+      "longitude": -88.32671,
+      "feature_code": "PPLA2",
+      "country_code": "US",
+      "country": "United States",
+      "admin1": "Tennessee",
+      "population": 10150,
+      "timezone": "America/Chicago"
+    }
+  ],
+  "generationtime_ms": 0.29039383
+}
