@@ -11,6 +11,12 @@ Short queries (one or two letters) are answered from a bundled list of popular d
 matched by the start of the name and ranked by population, without calling the provider: the provider cannot
 suggest "Amman" for "Am" (two letters match exactly), and it is never asked about a single letter.
 
+A country or a region is not a destination here: the trip planner plans a city. When the query is the whole name
+of a country or a first-level region ("Italy", "Georgia", "Texas"; areas.py, GeoNames), the answer lists them in
+`areas`, each with suggested cities there (the bundled popular destinations, and the places found in that
+region), so the box asks for a city instead of offering a namesake town ("Italy, Texas") as if it were the
+country. The provider's own country records (GeoNames PCLI) are never returned as places.
+
 Only populated places are returned (GeoNames feature codes PPL*, without historical, abandoned, destroyed or
 "section of" places). Nothing is invented: no result is a valid answer, and a provider failure is reported
 as one, never filled in.
@@ -39,6 +45,7 @@ from typing import Any, Callable
 import httpx
 
 from app.deployment_env import deployment_env
+from app.destinations.areas import area_matches
 from app.open_meteo import api_key as open_meteo_key, licence_allows, protect_httpx_logs
 
 PROVIDER_URL = "https://geocoding-api.open-meteo.com/v1/search"
@@ -61,6 +68,9 @@ PROVIDER_MAX_COUNT = 30
 
 # GeoNames populated-place codes that are not a destination today.
 EXCLUDED_CODES = {"PPLH", "PPLQ", "PPLW", "PPLX", "PPLCH"}
+# GeoNames codes of a country or territory (independent, dependent, freely associated, section, ...).
+COUNTRY_CODES = {"PCL", "PCLD", "PCLF", "PCLI", "PCLIX", "PCLS"}
+AREA_SUGGESTIONS = 8
 
 
 class DestinationError(Exception):
@@ -180,6 +190,18 @@ def popular_matches(places: list[dict], query: str, limit: int) -> list[dict]:
         return -(place["population"] or 0), _fold(place["name"])
 
     return (sorted(starts, key=rank) + sorted(words, key=rank))[:limit]
+
+
+def provider_country_names(items: list) -> dict[str, str]:
+    """The provider's own country records in an answer, as {name: ISO code}: other spellings of a country name
+    for area_matches (GeoNames says "Turkey", a provider may say "Republic of Türkiye")."""
+    names = {}
+    for item in items:
+        if isinstance(item, dict) and _text(item.get("feature_code")) in COUNTRY_CODES:
+            name, code = _text(item.get("name")), _text(item.get("country_code"))
+            if name and code and re.fullmatch(r"[A-Za-z]{2}", code):
+                names[name] = code.upper()
+    return names
 
 
 class _TTLCache:
@@ -311,16 +333,34 @@ class DestinationSearch:
                 if place and place["id"] not in seen:
                     seen.add(place["id"])
                     places.append(place)
-            cached = {"places": places}
+            cached = {"places": places, "countries": provider_country_names(raw)}
             with self._lock:
                 self._cache.put(key, cached, now + (self._ttl if places else self._empty_ttl))
             from_cache = False
         else:
             from_cache = True
-        return self._answer(query, cached["places"][:limit], from_cache, "worldwide")
+        return self._answer(query, cached["places"][:limit], from_cache, "worldwide",
+                            self._areas(query, cached.get("countries"), cached["places"]))
+
+    def _areas(self, query: str, provider_countries: dict | None, places: list[dict]) -> list[dict]:
+        """The countries and regions the query names, each with suggested cities there: the bundled popular
+        destinations in it, then the places found that lie in it (a region), largest first, at most 8."""
+        areas = []
+        for area in area_matches(query, provider_countries):
+            def inside(place: dict) -> bool:
+                return place["country_code"] == area["country_code"] and (
+                    area["kind"] == "country" or _fold(place.get("region") or "") == _fold(area["name"]))
+            cities, seen = [], set()
+            for place in [*self._popular_places(), *places]:
+                if inside(place) and place["id"] not in seen:
+                    seen.add(place["id"])
+                    cities.append(place)
+            cities.sort(key=lambda p: (-(p["population"] or 0), _fold(p["name"])))
+            areas.append({**area, "suggestions": cities[:AREA_SUGGESTIONS]})
+        return areas
 
     @staticmethod
-    def _answer(query: str, places: list[dict], cached: bool, scope: str) -> dict:
+    def _answer(query: str, places: list[dict], cached: bool, scope: str, areas: list[dict] | None = None) -> dict:
         names: dict[str, int] = {}
         for place in places:
             names[_fold(place["name"])] = names.get(_fold(place["name"]), 0) + 1
@@ -334,5 +374,8 @@ class DestinationSearch:
             "cached": cached,
             # "popular": a one- or two-letter query, matched in the bundled list; "worldwide": the provider's search
             "scope": scope,
+            # The query is the whole name of countries or regions: [{kind: "country" | "region", name, country_code,
+            # country, suggestions}]. Ask which city; never pick one for the traveller.
+            "areas": areas or [],
             "source": dict(SOURCE),
         }

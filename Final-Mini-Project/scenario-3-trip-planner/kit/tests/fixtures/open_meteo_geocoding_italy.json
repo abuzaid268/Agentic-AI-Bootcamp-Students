@@ -1,0 +1,106 @@
+{
+  "_source": "Recorded once on 2026-11-04 from GET https://geocoding-api.open-meteo.com/v1/search?name=Italy&count=24&language=en&format=json (GeoNames data, CC BY 4.0, via Open-Meteo). Only the fields Rihla reads.",
+  "results": [
+    {
+      "id": 3175395,
+      "name": "Italy",
+      "latitude": 42.83333,
+      "longitude": 12.83333,
+      "feature_code": "PCLI",
+      "country_code": "IT",
+      "country": "Italy",
+      "population": 58915656,
+      "timezone": "Europe/Rome"
+    },
+    {
+      "id": 4700234,
+      "name": "Italy",
+      "latitude": 32.18404,
+      "longitude": -96.88472,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "country": "United States",
+      "admin1": "Texas",
+      "population": 1897,
+      "timezone": "America/Chicago"
+    },
+    {
+      "id": 4299275,
+      "name": "Louisa",
+      "latitude": 38.11425,
+      "longitude": -82.60321,
+      "feature_code": "PPLA2",
+      "country_code": "US",
+      "country": "United States",
+      "admin1": "Kentucky",
+      "population": 2455,
+      "timezone": "America/New_York"
+    },
+    {
+      "id": 4583126,
+      "name": "Italy",
+      "latitude": 33.4485,
+      "longitude": -79.5409,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "country": "United States",
+      "admin1": "South Carolina",
+      "timezone": "America/New_York"
+    },
+    {
+      "id": 5122424,
+      "name": "Italy",
+      "latitude": 42.61174,
+      "longitude": -77.29192,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "country": "United States",
+      "admin1": "New York",
+      "timezone": "America/New_York"
+    },
+    {
+      "id": 1523731,
+      "name": "Yntaly",
+      "latitude": 44.32514,
+      "longitude": 78.98318,
+      "feature_code": "PPL",
+      "country_code": "KZ",
+      "country": "Kazakhstan",
+      "admin1": "Zhetysu Region",
+      "timezone": "Asia/Almaty"
+    },
+    {
+      "id": 419759,
+      "name": "Īţāliyā",
+      "latitude": 31.42588,
+      "longitude": 31.12715,
+      "feature_code": "PPL",
+      "country_code": "EG",
+      "country": "Egypt",
+      "admin1": "Kafr el-Sheikh Governorate",
+      "timezone": "Africa/Cairo"
+    },
+    {
+      "id": 5122425,
+      "name": "Italy Hill",
+      "latitude": 42.59618,
+      "longitude": -77.24887,
+      "feature_code": "PPL",
+      "country_code": "US",
+      "country": "United States",
+      "admin1": "New York",
+      "timezone": "America/New_York"
+    },
+    {
+      "id": 5984755,
+      "name": "Italy Cross",
+      "latitude": 44.26686,
+      "longitude": -64.54877,
+      "feature_code": "PPL",
+      "country_code": "CA",
+      "country": "Canada",
+      "admin1": "Nova Scotia",
+      "timezone": "America/Halifax"
+    }
+  ]
+}

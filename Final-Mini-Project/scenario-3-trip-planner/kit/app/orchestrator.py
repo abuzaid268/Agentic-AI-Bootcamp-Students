@@ -15,6 +15,7 @@ from app.traveller_memory import apply_preferences
 from planning.evidence import checkable_bundle
 from researcher.mcp_client import stage
 from app.diagnostics import budget_decisions, performance_summary, research_summary
+from app.research_errors import attraction_failure_message
 from app.coverage import (
     assess_coverage,
     assess_density,
@@ -424,11 +425,8 @@ def _orchestrate_trip(
         if attraction_failures and not any(p.category == "attraction" for p in research_bundle.places):
             return {
                 "status": "research_unavailable",
-                "message": (
-                    f"I could not load attractions for {research_bundle.trip.destination}: the attractions source is "
-                    f"unavailable right now ({attraction_failures[0].code}). I did not make a plan, so nothing was "
-                    "proposed or saved. Please try again in a few minutes."
-                ),
+                # the reason decides the advice: recorded data, no guide, or a source to retry (app/research_errors.py)
+                "message": attraction_failure_message(research_bundle.trip.destination, attraction_failures[0]),
             }
 
         destination = research_bundle.trip.destination
