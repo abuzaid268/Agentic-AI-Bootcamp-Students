@@ -4,8 +4,8 @@ import { AirportSearch, fetchAirportCountries } from '../airports/index.js'
 import FlightOfferCard, { DataModeBadge } from './FlightOfferCard.jsx'
 import { fetchFlightStatus, isFlightsUnavailable, searchFlights } from './flightsApi.js'
 import {
-  CABIN_CLASSES, DATA_MODES, MAX_ADULTS, MODE_STYLES, cheapestByCurrency, isoToday, latestOnly, resultState, searchKey,
-  sortOffers, validateFlightForm,
+  CABIN_CLASSES, DATA_MODES, MAX_ADULTS, MODE_STYLES, cheapestByCurrency, initialFlightForm, isoToday, latestOnly,
+  resultState, searchKey, sortOffers, validateFlightForm,
 } from './flightState.js'
 
 const FIELD_FOR_SERVER = {
@@ -25,16 +25,28 @@ function FieldError({ id, message }) {
  * Flight search and price comparison (GET /api/flights). Informational only: no booking, no payment, and the
  * prices are not added to the trip budget.
  *
- * Props: fetchImpl (flights, tests), airportFetchImpl (airport boxes, tests), today ("YYYY-MM-DD", tests).
+ * Optional starting values from the trip (flightState.initialFlightForm cleans them). They only fill the form when
+ * it first appears; what the traveller changes afterwards is kept. To start over for another trip, remount the
+ * component with a new `key`. A hint is only typed into an airport box, which then lists matching airports:
+ * no airport is ever chosen for the traveller.
+ *  - departureHint: text for the "From" box, e.g. the city the traveller leaves from ("London")
+ *  - departureCountry: ISO 3166-1 alpha-2 code that starts the departure country picker ("GB")
+ *  - arrivalHint: text for the "To" box, e.g. the destination city ("Amman")
+ *  - departureDate, returnDate ("YYYY-MM-DD"), adults (1 to 9; a larger party is capped at 9 and said so)
+ *  - title: the heading ("Compare flight prices")
+ * Props for tests: fetchImpl (flights), airportFetchImpl (airport boxes), today ("YYYY-MM-DD").
  */
-export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoToday() }) {
+export default function FlightSearch({
+  fetchImpl, airportFetchImpl, today = isoToday(), title = 'Compare flight prices', ...initial
+}) {
   const ids = useId()
+  const [start] = useState(() => initialFlightForm(initial)) // read once: later prop changes never overwrite choices
   const [origin, setOrigin] = useState(null)
   const [destination, setDestination] = useState(null)
-  const [roundTrip, setRoundTrip] = useState(true)
-  const [departureDate, setDepartureDate] = useState('')
-  const [returnDate, setReturnDate] = useState('')
-  const [adults, setAdults] = useState(1)
+  const [roundTrip, setRoundTrip] = useState(start.roundTrip)
+  const [departureDate, setDepartureDate] = useState(start.departureDate)
+  const [returnDate, setReturnDate] = useState(start.returnDate)
+  const [adults, setAdults] = useState(start.adults)
   const [cabinClass, setCabinClass] = useState('economy')
   const [errors, setErrors] = useState({})
   const [status, setStatus] = useState('idle') // idle | loading | ready | error
@@ -44,7 +56,8 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
   const [serverStatus, setServerStatus] = useState(null) // from GET /api/flights/status, null until known
   const [resultKey, setResultKey] = useState(null) // the search the answer or error on screen belongs to
   const [countries, setCountries] = useState([]) // from GET /api/airports/countries; [] hides the picker
-  const [departureCountry, setDepartureCountry] = useState('') // '' = any country
+  const [departureCountry, setDepartureCountry] = useState(start.departureCountry) // '' = any country
+  const [departureHint, setDepartureHint] = useState(start.departureHint) // typed into "From" until the country changes
   const pending = useRef(null)
   const searches = useRef(latestOnly())
 
@@ -53,7 +66,11 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
   useEffect(() => {
     const controller = new AbortController()
     fetchAirportCountries({ signal: controller.signal, fetchImpl: airportFetchImpl })
-      .then(setCountries)
+      .then((found) => {
+        setCountries(found)
+        // a starting country the server does not list is dropped, never kept as a hidden filter
+        if (found.length) setDepartureCountry((code) => (found.some((c) => c.code === code) ? code : ''))
+      })
       .catch(() => {}) // aborted on unmount
     return () => controller.abort()
   }, [airportFetchImpl])
@@ -62,6 +79,7 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
   // only that country's airports.
   const chooseDepartureCountry = (code) => {
     setDepartureCountry(code)
+    setDepartureHint('') // the hint belonged to the starting country
     setOrigin(null)
   }
 
@@ -121,7 +139,7 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
     <section aria-labelledby={`${ids}-title`} className="space-y-6">
       <form onSubmit={onSubmit} noValidate className="rounded-3xl border border-[#d5e6e9] bg-[#f7fbfb] p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id={`${ids}-title`} className="text-lg font-semibold text-[#1c3544]">Compare flight prices</h2>
+          <h2 id={`${ids}-title`} className="text-lg font-semibold text-[#1c3544]">{title}</h2>
           <fieldset className="flex rounded-full border border-[#d5e6e9] bg-white p-1 text-xs font-semibold">
             <legend className="sr-only">Trip type</legend>
             {[[true, 'Round trip'], [false, 'One way']].map(([value, text]) => (
@@ -166,6 +184,7 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
               kind="departure"
               label="From"
               country={departureCountry}
+              defaultValue={departureHint}
               onSelect={setOrigin}
               fetchImpl={airportFetchImpl}
               required
@@ -173,7 +192,14 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
             <FieldError id={describe('origin')} message={errors.origin} />
           </div>
           <div>
-            <AirportSearch kind="arrival" label="To" onSelect={setDestination} fetchImpl={airportFetchImpl} required />
+            <AirportSearch
+              kind="arrival"
+              label="To"
+              defaultValue={start.arrivalHint}
+              onSelect={setDestination}
+              fetchImpl={airportFetchImpl}
+              required
+            />
             <FieldError id={describe('destination')} message={errors.destination} />
           </div>
         </div>
@@ -225,6 +251,11 @@ export default function FlightSearch({ fetchImpl, airportFetchImpl, today = isoT
               ))}
             </select>
             <FieldError id={describe('adults')} message={errors.adults} />
+            {start.adultsCapped && (
+              <p className="mt-1.5 text-xs text-[#6b8791]">
+                Your trip has more than {MAX_ADULTS} travellers: search for up to {MAX_ADULTS} at a time.
+              </p>
+            )}
           </div>
           <div>
             <label htmlFor={`${ids}-cabin`} className={labelClass}>Cabin</label>

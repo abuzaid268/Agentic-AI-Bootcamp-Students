@@ -121,7 +121,7 @@ def test_garbage_entries_in_the_answer_do_not_break_the_search():
 
 # ------------------------------------------------------------------ input
 @pytest.mark.parametrize("q, code", [
-    ("", "missing_query"), ("   ", "missing_query"), ("P", "query_too_short"), ("12", "invalid_query"),
+    ("", "missing_query"), ("   ", "missing_query"), ("12", "invalid_query"),
     ("!!", "invalid_query"), ("Pa\x00ris", "invalid_query"), ("x" * 81, "query_too_long"),
 ])
 def test_invalid_input_is_refused_without_calling_the_provider(q, code):
@@ -196,20 +196,20 @@ def test_cache_entries_expire():
 def test_provider_calls_per_minute_are_capped_and_the_window_slides():
     now = [0.0]
     search = service(Provider(PARI), clock=lambda: now[0], max_calls_per_minute=2)
-    search.search("Ab")
-    search.search("Cd")
+    search.search("Abc")
+    search.search("Cde")
     with pytest.raises(DestinationError) as raised:
-        search.search("Ef")
+        search.search("Efg")
     assert raised.value.status == 429 and raised.value.code == "rate_limited" and raised.value.retry_after == 60
-    assert search.search("ab")["cached"] is True  # a cached query never counts
+    assert search.search("abc")["cached"] is True  # a cached query never counts
     now[0] = 60
-    assert search.search("Ef")["cached"] is False
+    assert search.search("Efg")["cached"] is False
 
 
 def test_the_rate_limit_answer_over_http():
     client = api(Provider(PARI), max_calls_per_minute=1)
-    client.get("/api/destinations", params={"q": "Ab"})
-    r = client.get("/api/destinations", params={"q": "Cd"})
+    client.get("/api/destinations", params={"q": "Abc"})
+    r = client.get("/api/destinations", params={"q": "Cde"})
     assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited" and "retry-after" in r.headers
 
 
@@ -308,3 +308,97 @@ def test_install_is_idempotent_and_the_route_needs_no_sign_in():
     assert "/api/destinations" in app.openapi()["paths"]
     from app.auth.middleware import PROTECTED_PREFIXES
     assert not any("/api/destinations".startswith(p) for p in PROTECTED_PREFIXES)
+
+
+# ------------------------------------------------------------------ one or two letters: the popular destinations list
+from app.destinations.service import MIN_QUERY_LENGTH, POPULAR_PATH, PROVIDER_MIN_LENGTH, load_popular  # noqa: E402
+
+POPULAR_FILE = json.loads(POPULAR_PATH.read_text(encoding="utf-8"))
+
+
+def test_the_bundled_list_is_small_attributed_and_made_of_real_provider_records():
+    places = load_popular()
+    assert 150 <= len(places) <= 300 and len(places) == len(POPULAR_FILE["places"])  # every record is usable
+    assert len({p["id"] for p in places}) == len(places)
+    assert POPULAR_FILE["source"]["licence"] == "CC BY 4.0" and "GeoNames" in POPULAR_FILE["source"]["attribution"]
+    assert POPULAR_FILE["builder"] == "python -m app.destinations.build_popular"
+    for raw in POPULAR_FILE["places"]:  # GeoNames records as the provider sends them, no hand-made fields
+        assert set(raw) <= {"id", "name", "latitude", "longitude", "feature_code", "country_code", "country", "admin1",
+                            "population", "timezone"}
+        assert isinstance(raw["id"], int) and raw["feature_code"].startswith("PPL") and raw["population"] >= 5000
+    by_name = {p["name"]: p for p in places}
+    assert by_name["Amman"]["country_code"] == "JO" and by_name["Amman"]["id"] == "geonames:250441"
+    assert by_name["Washington D.C."]["region"] == "District of Columbia"  # not a small town of the same name
+
+
+@pytest.mark.parametrize("q", ["A", "Am", "p", "Tel", "São"])
+def test_short_queries_never_reach_the_provider_and_longer_ones_always_do(q):
+    provider = Provider(PARI)
+    r = api(provider).get("/api/destinations", params={"q": q})
+    assert r.status_code == 200
+    short = len(q) < PROVIDER_MIN_LENGTH
+    assert r.json()["scope"] == ("popular" if short else "worldwide")
+    assert len(provider.requests) == (0 if short else 1)
+
+
+def test_one_letter_lists_popular_places_starting_with_it_largest_first():
+    r = api(Provider(PARI)).get("/api/destinations", params={"q": "a", "limit": 10})
+    body = r.json()
+    assert MIN_QUERY_LENGTH == 1 and body["query"] == "a" and body["count"] == 10
+    names = [p["name"] for p in body["results"]]
+    assert all(n.casefold().startswith("a") for n in names)
+    populations = [p["population"] for p in body["results"]]
+    assert populations == sorted(populations, reverse=True)
+    assert body["source"]["licence"] == "CC BY 4.0" and body["cached"] is False
+
+
+def test_two_letters_suggest_the_city_the_traveller_means():
+    labels = [p["label"] for p in api(Provider(PARI)).get("/api/destinations", params={"q": "Am"}).json()["results"]]
+    assert "Amman, Amman Governorate, Jordan" in labels and any(label.startswith("Amsterdam") for label in labels)
+    # the same places as the worldwide search: same ids, coordinates and labels
+    amman = next(p for p in load_popular() if p["name"] == "Amman")
+    assert amman["latitude"] == pytest.approx(31.95522, abs=0.01) and amman["timezone"] == "Asia/Amman"
+
+
+def test_a_later_word_matches_after_the_names_that_start_with_the_query():
+    search = service(Provider(PARI))
+    # "Yogyakarta" starts with "Yo"; "New York" only has a later word that does, so it comes after
+    assert [p["name"] for p in search.search("Yo")["results"]] == ["Yogyakarta", "New York"]
+    tel_aviv = search.search("Av")["results"]
+    assert any(p["name"] == "Tel Aviv" for p in tel_aviv)
+    starts = [p["name"] for p in search.search("Sa")["results"]]
+    assert starts and all(n.casefold().startswith("sa") or n.casefold().startswith("sã") for n in starts)
+
+
+def test_short_matches_ignore_case_and_accents():
+    search = service(Provider(PARI))
+    assert any(p["name"] == "São Paulo" for p in search.search("sa", limit=10)["results"])
+    assert any(p["name"] == "Málaga" for p in search.search("MA", limit=10)["results"])
+
+
+def test_no_popular_match_is_an_empty_answer_not_an_error_or_a_guess():
+    provider = Provider(PARI)
+    body = api(provider).get("/api/destinations", params={"q": "Xq"}).json()
+    assert body["count"] == 0 and body["results"] == [] and body["scope"] == "popular" and provider.requests == []
+
+
+def test_short_results_are_flagged_ambiguous_like_worldwide_ones():
+    place = {"id": "geonames:1", "provider_id": 1, "name": "Santiago", "region": None, "country": "X",
+             "country_code": "XX", "latitude": 1.0, "longitude": 1.0, "population": 10, "timezone": None,
+             "feature_code": "PPL", "label": "Santiago, X"}
+    twin = {**place, "id": "geonames:2", "provider_id": 2, "country": "Y", "label": "Santiago, Y"}
+    body = service(Provider(PARI), popular=[place, twin]).search("Sa")
+    assert body["ambiguous"] is True and all(p["ambiguous_name"] for p in body["results"])
+
+
+def test_a_missing_list_answers_empty_instead_of_failing(tmp_path):
+    assert load_popular(tmp_path / "absent.json") == []
+    (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
+    assert load_popular(tmp_path / "broken.json") == []
+    assert service(Provider(PARI), popular=[]).search("Am")["count"] == 0
+
+
+def test_production_without_a_licence_decision_refuses_short_queries_too(no_licence):
+    provider = Provider(PARI)
+    r = api(provider, environment="production").get("/api/destinations", params={"q": "Am"})
+    assert r.status_code == 503 and r.json()["error"]["code"] == "destinations_unavailable" and provider.requests == []

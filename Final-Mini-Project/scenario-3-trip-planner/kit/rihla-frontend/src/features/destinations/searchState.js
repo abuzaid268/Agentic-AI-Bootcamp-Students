@@ -1,6 +1,8 @@
 // Pure helpers for DestinationSearch: what to search, keyboard movement in the list, and what to announce.
 
-export const MIN_QUERY_LENGTH = 2
+export const MIN_QUERY_LENGTH = 1
+// Below this the server answers from its bundled list of popular destinations, not the worldwide search.
+export const WORLDWIDE_MIN_LENGTH = 3
 export const MAX_QUERY_LENGTH = 80
 
 export function normalizeQuery(text) {
@@ -65,9 +67,13 @@ export function sanitizeDestination(raw) {
 }
 
 // The sentence for the screen reader's live region (and the visible status line).
-export function statusMessage({ status, count, error, ambiguous, searchable }) {
+export function statusMessage({ status, count, error, ambiguous, searchable, scope = 'worldwide' }) {
   if (status === 'loading') return 'Searching for cities…'
   if (status === 'error') return error || 'City search failed. Please try again.'
+  if (status === 'ready' && searchable && scope === 'popular') {
+    if (!count) return `No popular destination starts with that. Type ${WORLDWIDE_MIN_LENGTH} letters or more to search every city.`
+    return `${count} popular ${count === 1 ? 'destination' : 'destinations'}. Keep typing to search every city.`
+  }
   if (status === 'ready' && searchable) {
     if (!count) return 'No cities found. Check the spelling, or try the city name in English.'
     const found = `${count} ${count === 1 ? 'city' : 'cities'} found.`

@@ -1,6 +1,17 @@
 // Pure helpers for AirportSearch: one airport from the API, how it is shown, what to announce, and route checks.
-// What to search and keyboard movement are the same as the destination box.
-export { moveHighlight, normalizeQuery, shouldSearch } from '../destinations/searchState.js'
+// Keyboard movement and query cleaning are the same as the destination box.
+import { MAX_QUERY_LENGTH, normalizeQuery } from '../destinations/searchState.js'
+
+export { moveHighlight, normalizeQuery } from '../destinations/searchState.js'
+
+// The airport search needs 2 characters (app/airports MIN_QUERY_LENGTH): unlike city search, it has no list for
+// a single letter, so one is never sent.
+export const MIN_QUERY_LENGTH = 2
+
+export function shouldSearch(text) {
+  const query = normalizeQuery(text)
+  return query.length >= MIN_QUERY_LENGTH && query.length <= MAX_QUERY_LENGTH && /\p{L}/u.test(query)
+}
 
 const textOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null)
 const codeOrNull = (value, pattern) => {
