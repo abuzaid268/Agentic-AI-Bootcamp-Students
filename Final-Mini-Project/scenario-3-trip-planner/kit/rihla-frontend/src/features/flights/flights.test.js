@@ -7,7 +7,7 @@ import {
   FlightSearchError, fetchFlightStatus, flightSearchUrl, isFlightsUnavailable, searchFlights,
 } from './flightsApi.js'
 import {
-  baggageLabel, cheapestByCurrency, dayShift, formatDuration, formatPrice, latestOnly, resultState,
+  baggageLabel, cheapestByCurrency, dayShift, formatDuration, formatPrice, initialFlightForm, latestOnly, resultState,
   sanitizeFlightAnswer, sanitizeOffer, searchKey, sortOffers, stopsLabel, validateFlightForm,
 } from './flightState.js'
 
@@ -244,5 +244,48 @@ describe('results always match the search on screen', () => {
     for (const mode of ['TEST', 'LIVE']) {
       assert.equal(sanitizeFlightAnswer({ ...DEMO, data_mode: mode, offers: [] }).dataMode, mode)
     }
+  })
+})
+
+describe('starting values from the trip', () => {
+  it('fills the form from the trip without choosing an airport', () => {
+    const start = initialFlightForm({ departureHint: ' London ', departureCountry: 'gb', arrivalHint: 'Amman',
+      departureDate: '2026-12-01', returnDate: '2026-12-08', adults: 2 })
+    assert.deepEqual(start, { departureHint: 'London', departureCountry: 'GB', arrivalHint: 'Amman', arrivalCountry: '',
+      departurePlace: null, arrivalPlace: null,
+      departureDate: '2026-12-01', returnDate: '2026-12-08', roundTrip: true, adults: 2, adultsCapped: false })
+    // only text for the airport boxes: the search form still has no airport until the traveller picks one
+    assert.deepEqual(Object.keys(validateFlightForm({ origin: null, destination: null, departureDate: start.departureDate,
+      returnDate: start.returnDate, roundTrip: true, adults: start.adults }, '2026-11-04')), ['origin', 'destination'])
+  })
+
+  it('starts empty, as before, without a trip', () => {
+    assert.deepEqual(initialFlightForm(), { departureHint: '', departureCountry: '', arrivalHint: '', arrivalCountry: '',
+      departurePlace: null, arrivalPlace: null, departureDate: '', returnDate: '', roundTrip: true, adults: 1,
+      adultsCapped: false })
+  })
+
+  it('leaves unusable values empty instead of guessing', () => {
+    const start = initialFlightForm({ departureCountry: 'GBR', departureDate: '01/12/2026', returnDate: '2026-12-08',
+      adults: 'two', arrivalHint: 42 })
+    assert.equal(start.departureCountry, '')
+    assert.equal(start.departureDate, '')
+    assert.equal(start.adults, 1)
+    assert.equal(start.arrivalHint, '')
+    assert.equal(initialFlightForm({ departureDate: '2026-12-08', returnDate: '2026-12-01' }).returnDate, '') // before departure
+    assert.equal(initialFlightForm({ arrivalHint: 'x'.repeat(150) }).arrivalHint.length, 100)
+  })
+
+  it('a trip with only a start date is searched one way; a large party is capped and says so', () => {
+    assert.equal(initialFlightForm({ departureDate: '2026-12-01' }).roundTrip, false)
+    assert.deepEqual(initialFlightForm({ adults: 12 }), { ...initialFlightForm(), adults: 9, adultsCapped: true })
+  })
+
+  it('reads the starting values once, and never selects an airport from a hint', () => {
+    const source = readFileSync(new URL('./FlightSearch.jsx', import.meta.url), 'utf8')
+    assert.match(source, /const \[start\] = useState\(\(\) => initialFlightForm\(initial\)\)/)
+    assert.match(source, /useState\(null\)[^\n]*\n\s*const \[destination, setDestination\] = useState\(null\)/)
+    assert.match(source, /useState\(start\.arrivalHint\)/) // text for the box, never an airport
+    assert.doesNotMatch(source, /setOrigin\(\s*\{|setDestination\(\s*\{/) // only a real airport object is ever set
   })
 })

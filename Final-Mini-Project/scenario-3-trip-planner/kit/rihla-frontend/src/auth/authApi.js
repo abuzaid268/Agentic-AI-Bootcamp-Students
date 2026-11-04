@@ -20,6 +20,13 @@ async function readDetail(response, fallback) {
   return fallback
 }
 
+// For the other API clients (trips, approval, revision): a 401 means the session ended. Throws AuthRequiredError,
+// which the page hands to useAuth().sessionExpired(retry); any other response is returned unchanged.
+export async function requireSession(response, fallback = 'Your session ended. Please log in again.') {
+  if (response?.status === 401) throw new AuthRequiredError(await readDetail(response, fallback))
+  return response
+}
+
 async function send(path, options = {}) {
   try {
     return await fetch(path, { credentials: 'same-origin', ...options })

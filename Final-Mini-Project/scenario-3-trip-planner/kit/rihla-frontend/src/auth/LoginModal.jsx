@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { LockKeyhole, Plane, ShieldCheck, Sparkles, X } from 'lucide-react'
-import { firebaseConfigured, loadFirebaseAuth } from './firebaseClient.js'
+import { loadFirebaseAuth } from './firebaseClient.js'
 import { signInErrorMessage } from './signInErrors.js'
 
 const COPY = {
@@ -41,19 +41,25 @@ export default function LoginModal({ reason, onClose, onSignIn }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const googleButton = useRef(null)
-  const configured = firebaseConfigured()
+  // Why sign-in cannot start here (firebaseClient.resolveFirebaseConfig): null while loading or when it can.
+  const [setupError, setSetupError] = useState(null)
   const copy = COPY[reason] || COPY.navbar
 
   useEffect(() => {
     googleButton.current?.focus()
     // Load Firebase now, so the popup opens within the click (browsers block popups opened later).
-    if (configured) loadFirebaseAuth().catch(() => {})
+    let active = true
+    loadFirebaseAuth().then(
+      () => { if (active) setSetupError(null) },
+      (err) => { if (active && err?.code === 'auth/not-configured') setSetupError(err) },
+    )
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
+      active = false
       document.body.style.overflow = previousOverflow
     }
-  }, [configured])
+  }, [])
 
   useEffect(() => {
     const onKey = (event) => {
@@ -66,8 +72,8 @@ export default function LoginModal({ reason, onClose, onSignIn }) {
   const signIn = async () => {
     if (busy) return
     setError('')
-    if (!configured) {
-      setError(signInErrorMessage({ code: 'auth/not-configured' }))
+    if (setupError) {
+      setError(signInErrorMessage(setupError))
       return
     }
     setBusy(true)

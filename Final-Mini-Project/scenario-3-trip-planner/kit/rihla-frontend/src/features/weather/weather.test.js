@@ -106,3 +106,16 @@ describe('what the traveller sees and hears', () => {
     assert.equal(describeDay(day, '°C'), 'Tue 3 Nov, overcast, high 25°C, low 15°C, 3% chance of rain, wind up to 16 km/h')
   })
 })
+
+describe('a server without the weather route', () => {
+  it('reports it as not available, without a retry', async () => {
+    await assert.rejects(fetchWeather({ latitude: 1, longitude: 2 }, { fetchImpl: fakeFetch(404, { detail: 'Not Found' }).impl }),
+      (err) => err.code === 'not_available' && err.retryable === false)
+  })
+
+  it('shows a calm note for it, not an error alert', () => {
+    const source = readFileSync(new URL('./WeatherSummary.jsx', import.meta.url), 'utf8')
+    assert.match(source, /QUIET_ERRORS = \['beyond_forecast_horizon', 'weather_unavailable', 'not_available'\]/)
+    assert.match(source, /Weather is not connected on this server yet/)
+  })
+})

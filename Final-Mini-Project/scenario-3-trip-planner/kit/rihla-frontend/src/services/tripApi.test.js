@@ -101,3 +101,36 @@ describe('the structured trip form', () => {
     await assert.rejects(createTrip(TRIP, 's'), /Please check the trip details: The return date is before the departure date\./)
   })
 })
+
+describe('createTrip timeout', () => {
+  it('stops waiting for a hung backend and says no trip was shown', async () => {
+    let sawSignal = false
+    globalThis.fetch = (url, init) => new Promise((resolve, reject) => {
+      sawSignal = Boolean(init.signal)
+      init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    })
+    await assert.rejects(createTrip(TRIP, 's', 20), /did not answer within[\s\S]*no trip is shown/)
+    assert.equal(sawSignal, true)
+  })
+
+  it('a response before the limit is returned normally', async () => {
+    respondWith(200, { status: 'pending_approval' })
+    assert.deepEqual(await createTrip(TRIP, 's', 1000), { status: 'pending_approval' })
+  })
+})
+
+describe('long trips get more time, never less', async () => {
+  const { tripDays, tripRequestTimeoutMs, TRIP_REQUEST_TIMEOUT_MS } = await import('./tripApi.js')
+  const trip = (departureDate, returnDate) => ({ departureDate, returnDate })
+  it('counts the days inclusively', () => {
+    assert.equal(tripDays(trip('2026-12-01', '2026-12-01')), 1)
+    assert.equal(tripDays(trip('2026-12-01', '2026-12-30')), 30)
+    assert.equal(tripDays(trip('', '')), 1)
+  })
+  it('keeps 5 minutes up to a week, grows after, and stays bounded', () => {
+    assert.equal(tripRequestTimeoutMs(trip('2026-12-01', '2026-12-03')), TRIP_REQUEST_TIMEOUT_MS)
+    assert.equal(tripRequestTimeoutMs(trip('2026-12-01', '2026-12-07')), TRIP_REQUEST_TIMEOUT_MS)
+    assert.ok(tripRequestTimeoutMs(trip('2026-12-01', '2026-12-30')) > TRIP_REQUEST_TIMEOUT_MS)
+    assert.ok(tripRequestTimeoutMs(trip('2026-11-02', '2026-12-31')) <= 20 * 60 * 1000)
+  })
+})

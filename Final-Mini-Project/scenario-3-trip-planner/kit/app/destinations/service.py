@@ -6,6 +6,17 @@ fuzzily, two match exactly, one returns nothing. Results carry a stable GeoNames
 region, population and time zone. (The kit's geocode tool is Nominatim, an exact single-place lookup whose
 usage policy forbids autocomplete, and in replay mode it answers only recorded queries, so it is not used here.)
 
+Short queries (one or two letters) are answered from a bundled list of popular destinations
+(data/popular_destinations.json: GeoNames records as the same provider serves them, built by build_popular.py),
+matched by the start of the name and ranked by population, without calling the provider: the provider cannot
+suggest "Amman" for "Am" (two letters match exactly), and it is never asked about a single letter.
+
+A country or a region is not a destination here: the trip planner plans a city. When the query is the whole name
+of a country or a first-level region ("Italy", "Georgia", "Texas"; areas.py, GeoNames), the answer lists them in
+`areas`, each with suggested cities there (the bundled popular destinations, and the places found in that
+region), so the box asks for a city instead of offering a namesake town ("Italy, Texas") as if it were the
+country. The provider's own country records (GeoNames PCLI) are never returned as places.
+
 Only populated places are returned (GeoNames feature codes PPL*, without historical, abandoned, destroyed or
 "section of" places). Nothing is invented: no result is a valid answer, and a provider failure is reported
 as one, never filled in.
@@ -24,14 +35,17 @@ import math
 import os
 import re
 import threading
+import json
 import time
 import unicodedata
 from collections import OrderedDict, deque
+from pathlib import Path
 from typing import Any, Callable
 
 import httpx
 
 from app.deployment_env import deployment_env
+from app.destinations.areas import area_matches
 from app.open_meteo import api_key as open_meteo_key, licence_allows, protect_httpx_logs
 
 PROVIDER_URL = "https://geocoding-api.open-meteo.com/v1/search"
@@ -43,7 +57,9 @@ SOURCE = {
     "attribution": "City data from GeoNames (geonames.org), CC BY 4.0, via Open-Meteo.com",
 }
 
-MIN_QUERY_LENGTH = 2
+MIN_QUERY_LENGTH = 1
+PROVIDER_MIN_LENGTH = 3  # shorter queries are answered from the popular destinations list only
+POPULAR_PATH = Path(__file__).parent / "data" / "popular_destinations.json"
 MAX_QUERY_LENGTH = 80
 DEFAULT_LIMIT = 8
 MAX_LIMIT = 10
@@ -52,6 +68,9 @@ PROVIDER_MAX_COUNT = 30
 
 # GeoNames populated-place codes that are not a destination today.
 EXCLUDED_CODES = {"PPLH", "PPLQ", "PPLW", "PPLX", "PPLCH"}
+# GeoNames codes of a country or territory (independent, dependent, freely associated, section, ...).
+COUNTRY_CODES = {"PCL", "PCLD", "PCLF", "PCLI", "PCLIX", "PCLS"}
+AREA_SUGGESTIONS = 8
 
 
 class DestinationError(Exception):
@@ -81,14 +100,12 @@ def _env_number(name: str, default: float, low: float, high: float) -> float:
 def normalize_query(raw: Any) -> str:
     """The query as searched: Unicode NFC, whitespace collapsed. Raises DestinationError(422) when unusable."""
     if not isinstance(raw, str) or not raw.strip():
-        raise DestinationError(422, "missing_query", "Type at least 2 letters of a city name.")
+        raise DestinationError(422, "missing_query", "Type the first letters of a city name.")
     text = " ".join(unicodedata.normalize("NFC", raw).split())
     if any(unicodedata.category(ch) == "Cc" for ch in text):
         raise DestinationError(422, "invalid_query", "The search text contains characters that are not allowed.")
     if not any(ch.isalpha() for ch in text):
         raise DestinationError(422, "invalid_query", "Type a city name (letters, not only numbers or symbols).")
-    if len(text) < MIN_QUERY_LENGTH:
-        raise DestinationError(422, "query_too_short", "Type at least 2 letters of a city name.")
     if len(text) > MAX_QUERY_LENGTH:
         raise DestinationError(422, "query_too_long", f"The search text is limited to {MAX_QUERY_LENGTH} characters.")
     return text
@@ -142,6 +159,51 @@ def normalize_result(item: Any) -> dict | None:
     }
 
 
+def load_popular(path: Path = POPULAR_PATH) -> list[dict]:
+    """The bundled popular destinations, normalized like provider results; [] when the file is missing."""
+    try:
+        records = json.loads(path.read_text(encoding="utf-8")).get("places") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    seen, places = set(), []
+    for item in records:
+        place = normalize_result(item)
+        if place and place["id"] not in seen:
+            seen.add(place["id"])
+            places.append(place)
+    return places
+
+
+def popular_matches(places: list[dict], query: str, limit: int) -> list[dict]:
+    """Places whose name starts with the query, then places with a later word that does ("Tel" -> "Tel Aviv",
+    "Yo" -> "New York"); each group by population, largest first. Case and accent insensitive."""
+    wanted = _fold(query)
+    starts, words = [], []
+    for place in places:
+        name = _fold(place["name"])
+        if name.startswith(wanted):
+            starts.append(place)
+        elif any(word.startswith(wanted) for word in re.split(r"[\s\-']+", name)[1:]):
+            words.append(place)
+
+    def rank(place: dict) -> tuple:
+        return -(place["population"] or 0), _fold(place["name"])
+
+    return (sorted(starts, key=rank) + sorted(words, key=rank))[:limit]
+
+
+def provider_country_names(items: list) -> dict[str, str]:
+    """The provider's own country records in an answer, as {name: ISO code}: other spellings of a country name
+    for area_matches (GeoNames says "Turkey", a provider may say "Republic of Türkiye")."""
+    names = {}
+    for item in items:
+        if isinstance(item, dict) and _text(item.get("feature_code")) in COUNTRY_CODES:
+            name, code = _text(item.get("name")), _text(item.get("country_code"))
+            if name and code and re.fullmatch(r"[A-Za-z]{2}", code):
+                names[name] = code.upper()
+    return names
+
+
 class _TTLCache:
     def __init__(self, max_entries: int):
         self._data: OrderedDict[tuple, tuple[float, dict]] = OrderedDict()
@@ -172,7 +234,7 @@ class DestinationSearch:
                  timeout_s: float | None = None, max_calls_per_minute: int | None = None,
                  cache_ttl_s: float = 6 * 3600, empty_ttl_s: float = 600, cache_entries: int = 512,
                  clock: Callable[[], float] = time.monotonic, environment: str | None = None,
-                 api_key: str | None = None):
+                 api_key: str | None = None, popular: list[dict] | None = None):
         self.environment = environment or deployment_env()
         self._key = (api_key if api_key is not None else open_meteo_key()) or None
         self.allowed, self.reason = licence_allows(self.environment)
@@ -191,6 +253,12 @@ class DestinationSearch:
         self._calls: deque[float] = deque()
         self._clock = clock
         self._lock = threading.Lock()
+        self._popular = popular  # loaded on the first short query when not given
+
+    def _popular_places(self) -> list[dict]:
+        if self._popular is None:
+            self._popular = load_popular()
+        return self._popular
 
     def _take_call_slot(self, now: float) -> None:
         with self._lock:
@@ -249,6 +317,8 @@ class DestinationSearch:
         query = normalize_query(raw_query)
         limit = max(1, min(MAX_LIMIT, int(limit)))
         language = language.lower() if isinstance(language, str) and re.fullmatch(r"[A-Za-z]{2}", language) else "en"
+        if len(query) < PROVIDER_MIN_LENGTH:  # never sent to the provider
+            return self._answer(query, popular_matches(self._popular_places(), query, limit), False, "popular")
         count = min(PROVIDER_MAX_COUNT, limit * OVERFETCH)
         key = (_fold(query), count, language)
         now = self._clock()
@@ -263,16 +333,34 @@ class DestinationSearch:
                 if place and place["id"] not in seen:
                     seen.add(place["id"])
                     places.append(place)
-            cached = {"places": places}
+            cached = {"places": places, "countries": provider_country_names(raw)}
             with self._lock:
                 self._cache.put(key, cached, now + (self._ttl if places else self._empty_ttl))
             from_cache = False
         else:
             from_cache = True
-        return self._answer(query, cached["places"][:limit], from_cache)
+        return self._answer(query, cached["places"][:limit], from_cache, "worldwide",
+                            self._areas(query, cached.get("countries"), cached["places"]))
+
+    def _areas(self, query: str, provider_countries: dict | None, places: list[dict]) -> list[dict]:
+        """The countries and regions the query names, each with suggested cities there: the bundled popular
+        destinations in it, then the places found that lie in it (a region), largest first, at most 8."""
+        areas = []
+        for area in area_matches(query, provider_countries):
+            def inside(place: dict) -> bool:
+                return place["country_code"] == area["country_code"] and (
+                    area["kind"] == "country" or _fold(place.get("region") or "") == _fold(area["name"]))
+            cities, seen = [], set()
+            for place in [*self._popular_places(), *places]:
+                if inside(place) and place["id"] not in seen:
+                    seen.add(place["id"])
+                    cities.append(place)
+            cities.sort(key=lambda p: (-(p["population"] or 0), _fold(p["name"])))
+            areas.append({**area, "suggestions": cities[:AREA_SUGGESTIONS]})
+        return areas
 
     @staticmethod
-    def _answer(query: str, places: list[dict], cached: bool) -> dict:
+    def _answer(query: str, places: list[dict], cached: bool, scope: str, areas: list[dict] | None = None) -> dict:
         names: dict[str, int] = {}
         for place in places:
             names[_fold(place["name"])] = names.get(_fold(place["name"]), 0) + 1
@@ -284,5 +372,10 @@ class DestinationSearch:
             # The best match shares its name with another result: show region and country before choosing.
             "ambiguous": bool(results) and results[0]["ambiguous_name"],
             "cached": cached,
+            # "popular": a one- or two-letter query, matched in the bundled list; "worldwide": the provider's search
+            "scope": scope,
+            # The query is the whole name of countries or regions: [{kind: "country" | "region", name, country_code,
+            # country, suggestions}]. Ask which city; never pick one for the traveller.
+            "areas": areas or [],
             "source": dict(SOURCE),
         }

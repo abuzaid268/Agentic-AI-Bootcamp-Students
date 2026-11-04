@@ -61,11 +61,32 @@ function travelText(extra, activity) {
 // The trip's status for the PDF: approved (saved in the Trip Store), verified (not approved yet), or a draft.
 export function pdfStatus(aiResult, approval) {
   const saved = approval?.trip_id || aiResult?.approval?.trip_id
+  // Saved by the traveller's own acknowledged decision (POST /api/accept): saved, but never called verified.
+  const mode = approval?.mode || aiResult?.approval?.mode || aiResult?.itinerary?.rihla_save?.mode
+  if (saved && mode === 'unverified_draft') {
+    return { kind: 'draft', label: `Saved · Unverified Draft · Trip ${saved}`,
+      detail: 'You saved this itinerary knowing the verifier found problems it could not repair (listed below). It is '
+        + 'not verified. Rihla never books or pays for anything.' }
+  }
+  if (saved && mode === 'accepted_with_limitations') {
+    return { kind: 'limited', label: `Saved · Not Fully Verified · Trip ${saved}`,
+      detail: 'You accepted this itinerary with its limitations: some opening hours, prices or travel times could not '
+        + 'be confirmed (listed below). The final budget cannot be guaranteed. Rihla never books or pays for anything.' }
+  }
   if (saved) {
-    return { kind: 'approved', label: `Approved · Saved trip ${saved}`,
-      detail: 'Verified by Rihla and approved by you. Rihla never books or pays for anything.' }
+    // What the approval relied on, when this browser recorded it (app/approval_policy.py); never "verified" unless
+    // it was on live data.
+    const basis = approval?.basis || aiResult?.approval?.basis
+    const how = basis === 'live' ? 'Verified on live data and approved by you.'
+      : basis === 'recorded' ? 'Every check passed on recorded data, not live sources, and you approved it.'
+        : 'Approved by you and saved in the Rihla Trip Store.'
+    return { kind: 'approved', label: `Approved · Saved trip ${saved}`, detail: `${how} Rihla never books or pays for anything.` }
   }
   const v = getVerificationState(aiResult)
+  if (v.level === 'recorded') {
+    return { kind: 'recorded', label: 'Checked against recorded data · Not yet approved',
+      detail: `${v.detail} You have not approved it yet.` }
+  }
   if (v.level === 'verified') {
     return { kind: 'verified', label: 'Verified · Not yet approved',
       detail: 'This itinerary passed verification but you have not approved it yet.' }
@@ -97,12 +118,19 @@ export function pdfModel({ aiResult, request = {}, approval = null }) {
     }),
   }))
   const acts = it.days.flatMap((d) => d.activities || [])
-  const unknown = acts.filter((a) => !Number.isFinite(a.estimated_cost) && a.cost_status !== 'free')
+  // A trip saved with its limitations carries them (app/approval_policy.acceptance): used when this browser has no
+  // copy of the verifier's report, e.g. a trip opened from My Trips on another device.
+  const saveInfo = it.rihla_save && typeof it.rihla_save === 'object' ? it.rihla_save : null
+  const unpricedNames = new Set(saveInfo?.costs?.unpriced_items || [])
+  const unknown = acts.filter((a) => (!Number.isFinite(a.estimated_cost) && a.cost_status !== 'free')
+    || unpricedNames.has(a.name))
   const b = aiResult.budget || {}
-  const known = b.planned_known_total ?? it.estimated_total ?? null
+  const known = b.planned_known_total ?? saveInfo?.costs?.known_subtotal ?? it.estimated_total ?? null
   const budgetTotal = it.budget_total ?? null
   const verification = aiResult.verification
-  const findings = (verification?.findings || []).filter((f) => f.state !== 'advice')
+  const findings = verification
+    ? (verification.findings || []).filter((f) => f.state !== 'advice')
+    : [...(saveInfo?.confirmed_problems || []), ...(saveInfo?.limitations || [])].map((explanation) => ({ explanation }))
   const status = pdfStatus(aiResult, approval)
   const first = it.days[0]?.date
   const last = it.days[it.days.length - 1]?.date
@@ -124,13 +152,15 @@ export function pdfModel({ aiResult, request = {}, approval = null }) {
         ['Activities with an unknown price', `${unknown.length}${unknown.length ? ` (not counted as free)` : ''}`],
         ['Budget left after the known costs (before excluded costs)',
           budgetTotal !== null && known !== null ? money(budgetTotal - Number(known), currency) : 'Cannot be confirmed'],
+        ...(unknown.length ? [['Final budget', 'Cannot be guaranteed: some prices are unavailable']] : []),
         ...(b.confidence ? [['How complete the priced picture is', `${b.confidence} — ${b.confidence_basis || ''}`]] : []),
       ],
       unknownNames: unknown.map((a) => a.name),
       notIncluded: b.not_included || NOT_INCLUDED,
     },
     verification: {
-      label: verification ? `${verification.status} · ${String(verification.state || '').replace(/_/g, ' ')}` : status.label,
+      label: verification ? `${verification.status} · ${String(verification.state || '').replace(/_/g, ' ')}`
+        : saveInfo?.verification_status ? `${saveInfo.verification_status} · not fully verified` : status.label,
       counts: verification?.counts || null,
       findings: findings.slice(0, 12).map((f) => f.explanation),
       more: Math.max(0, findings.length - 12),
@@ -191,7 +221,8 @@ export function renderItineraryPdf(model) {
   doc.setFontSize(15)
   doc.text(pdfText(model.title), M, 72)
   y = 112
-  const statusColor = model.status.kind === 'draft' ? COLORS.draft : COLORS.ok
+  // saved with limitations is not verified: never the "ok" colour
+  const statusColor = model.status.kind === 'draft' || model.status.kind === 'limited' ? COLORS.draft : COLORS.ok
   write(model.status.label, { size: 13, style: 'bold', c: statusColor, gap: 2 })
   write(model.status.detail, { size: 9, c: COLORS.muted, gap: 10 })
   for (const [label, value] of model.facts) {

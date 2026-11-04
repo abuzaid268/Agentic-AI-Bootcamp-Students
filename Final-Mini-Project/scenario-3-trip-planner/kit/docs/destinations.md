@@ -22,6 +22,57 @@ needs no key, and is made for search as you type:
 - two characters match exactly;
 - one character returns nothing.
 
+**One or two letters: popular destinations.** The provider alone cannot suggest "Amman" for "Am", and it returns
+nothing for "A". So a query of one or two letters is answered from a bundled list, without calling the provider:
+- the list is `app/destinations/data/popular_destinations.json`, 224 popular destinations;
+- each record is the provider's own GeoNames record, so it has the same id, coordinates and label as in the
+  worldwide search;
+- results are places whose name starts with the query, then places with a later word that does ("Yo" gives
+  Yogyakarta, then New York), largest population first, ignoring case and accents;
+- the answer says `"scope": "popular"`, and the box shows "Keep typing to search every city";
+- three letters or more always use the worldwide search (`"scope": "worldwide"`), as before;
+- the licence gate below still comes first: in production without a decision, short queries answer 503 too.
+
+**Countries, regions and shared names need an explicit choice.** Rihla plans a city. For "Italy", the provider's
+first result is the country itself (GeoNames `PCLI`), then towns that share the name ("Italy, Texas").
+- `app/destinations/areas.py` knows every country and first-level region of the world (`data/areas.json`, 252
+  countries and 3,865 states, provinces and governorates from GeoNames, CC BY 4.0, rebuilt by
+  `python -m app.destinations.build_areas --source <GeoNames export folder>`), matched by whole name only.
+- The answer carries `"areas": [{"kind": "country" | "region", "name", "country_code", "country", "suggestions"}]`:
+  "Italy" is a country (suggestions Rome, Milan, …); "Georgia" is a country and a US state; "Texas" is a region.
+  The provider's country records are never returned as places.
+- The box shows "Italy is a country. Choose a city:" above the suggestions, then "Other places with this name",
+  and highlights nothing, so Enter cannot pick "Italy, Texas" for the traveller. The same applies to a name
+  several places share (`"ambiguous": true`: London, Paris, Tokyo).
+- A required box stops the trip form (the browser's own validation) while it holds an area or a shared name and
+  nothing is chosen, and while the text is still being checked. A failed search never blocks it.
+
+**The chosen place travels with the trip.** `POST /api/chat` accepts an optional `trip.place` (GeoNames id,
+`kind: "city"`, name, region, country, ISO `country_code`, coordinates, label); `app/destinations/identity.py`
+checks it on the server: a known country code, real coordinates, not a country sent as a city, and a destination
+text that names that same place. A shorter text ("Paris") is researched by the place's full label ("Paris, Texas,
+United States"). Without a place (older clients, saved trips), a destination that is only a country's name is
+refused with a request for a city (city-states such as Singapore excepted); everything else is planned as before.
+
+**The travel data looks up that very place** (`services/travel_data.py`). A qualified name is never cut to its
+first word any more:
+- live and record modes: the city's coordinates come from Open-Meteo (the same GeoNames place the box showed),
+  and the Wikivoyage page used is the one nearest to them within 40 km among Wikivoyage's own titles ("Paris
+  (Texas)", "London (Ontario)", "Washington, D.C.", "New York City") and the pages near that point. None: error
+  `no_guide`, never a namesake's page;
+- replay mode: the recorded cities only, under any name that places them where they are ("Amman, Jordan",
+  "Istanbul, Republic of Türkiye"); "Amman, Texas" is `not_cached`;
+- refused or dropped connections, 429 and 5xx answers are retried at most 3 times (Retry-After honoured up to
+  5 s), and so is a connection not made in time (the request was never sent); a read timeout is not retried.
+  Every upstream call has a 20 s deadline (all its attempts and waits) and every travel API request a 40 s budget
+  for all its upstream calls, so a request ends within 55 s at worst, under the MCP tool's 60 s
+  (`services/travel_mcp.py`).
+
+The list is rebuilt by hand with `python -m app.destinations.build_popular`:
+- it names destinations only (city name and country code) and keeps the provider's own record;
+- it leaves out any name the provider does not confirm, or that matches only a village (under 5,000 people);
+- it makes about 230 free provider calls, so run it in development.
+
 Every result has a stable GeoNames id, coordinates, country, region, population and time zone. Licence: CC BY 4.0.
 The component shows the attribution ("City data: GeoNames (CC BY 4.0) via Open-Meteo") and every API answer carries
 `source`.
@@ -104,7 +155,7 @@ Errors: `{"error": {"code", "message", "retryable", "retry_after"?}}`
 | Status | `code` | When |
 |---|---|---|
 | 503 | `destinations_unavailable` | Production without the Open-Meteo licence decision (see above). Checked before anything else, and not retryable. |
-| 422 | `missing_query`, `query_too_short`, `invalid_query`, `query_too_long` | empty, 1 character, no letters or control characters, over 80 characters; the provider is not called |
+| 422 | `missing_query`, `invalid_query`, `query_too_long` | empty, no letters or control characters, over 80 characters; the provider is not called. One or two letters are answered from the popular list (above), not refused. |
 | 422 | FastAPI validation | `limit` outside 1–10, `lang` not 2 letters |
 | 429 | `rate_limited` | this server's provider-call cap was reached (header `Retry-After`) |
 | 503 | `provider_rate_limited` | the provider answered 429 (`Retry-After` passed on) |

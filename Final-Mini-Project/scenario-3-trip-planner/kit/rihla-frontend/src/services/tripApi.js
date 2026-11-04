@@ -1,4 +1,6 @@
-import { AuthRequiredError } from '../auth/authApi.js'
+import { requireSession } from '../auth/authApi.js'
+import { sendApproval } from './approval.js'
+import { apiPlace } from '../features/trip-travel/tripTravelState.js'
 
 function buildTripMessage(trip) {
   const details = [
@@ -23,6 +25,9 @@ function buildTripMessage(trip) {
 // The form's own fields, sent as they are: the backend uses them exactly (the
 // selected interests are never re-read from the message by an LLM).
 export function buildTripForm(trip) {
+  // The city chosen in the destination box (GeoNames id, country code, coordinates), when there is one: the server
+  // checks it against the text and researches that very place, not a namesake (app/destinations/identity.py).
+  const place = apiPlace(trip.destinationPlace)
   return {
     destination: trip.destination.trim(),
     start_date: trip.departureDate,
@@ -32,6 +37,7 @@ export function buildTripForm(trip) {
     currency: 'USD',
     interests: [...(trip.interests || [])],
     preferences: trip.customPreferences?.trim() || null,
+    ...(place ? { place } : {}),
   }
 }
 
@@ -44,13 +50,39 @@ function validationMessage(detail) {
   return messages.length ? `Please check the trip details: ${messages.join(' ')}` : null
 }
 
-const STATUS_MESSAGES = {
-  402: 'The AI provider declined the request (payment required). No trip was generated.',
-  503: 'The trip planning service is temporarily unavailable. No trip was generated, please try again later.',
+// What did not happen, said in every error: a new trip was not generated, or the current one was not changed.
+const NEW_TRIP = { outcome: 'No trip was generated.', timedOut: 'so no trip is shown', login: 'Please log in to plan your trip.' }
+const REVISION = {
+  outcome: 'Your itinerary was not changed.',
+  timedOut: 'so your itinerary was not changed',
+  login: 'Please log in again to change your trip.',
 }
 
-export async function createTrip(trip, sessionId) {
+// Measured full runs take 75-85 s (sequential LLM stages); stop waiting well
+// after that so a hung backend or provider never leaves the page spinning forever.
+export const TRIP_REQUEST_TIMEOUT_MS = 5 * 60 * 1000
+// Longer trips take longer (more places to research, plan and verify): the limit grows with the trip's days.
+export const LONG_TRIP_DAYS = 7
+const EXTRA_MS_PER_DAY = 20 * 1000
+const MAX_TRIP_REQUEST_TIMEOUT_MS = 20 * 60 * 1000
+
+export function tripDays(trip) {
+  const start = Date.parse(`${trip?.departureDate}T00:00:00Z`)
+  const end = Date.parse(`${trip?.returnDate}T00:00:00Z`)
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 86400000) + 1 : 1
+}
+
+export function tripRequestTimeoutMs(trip) {
+  const extra = Math.max(0, tripDays(trip) - LONG_TRIP_DAYS) * EXTRA_MS_PER_DAY
+  return Math.min(MAX_TRIP_REQUEST_TIMEOUT_MS, TRIP_REQUEST_TIMEOUT_MS + extra)
+}
+
+// POST /api/chat with a time limit. Throws AuthRequiredError for a 401 (the page asks to log in and retries),
+// otherwise an Error whose message is safe to show and says what did not happen.
+async function postChat(body, timeoutMs, { outcome, timedOut, login }) {
   let response
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     response = await fetch('/api/chat', {
@@ -58,23 +90,24 @@ export async function createTrip(trip, sessionId) {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        session_id: sessionId,
-        message: buildTripMessage(trip),
-        trip: buildTripForm(trip),
-      }),
+      body: JSON.stringify(body),
+      signal: controller.signal,
     })
   } catch {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `The planner did not answer within ${Math.round(timeoutMs / 60000)} minutes, ${timedOut}. `
+        + 'The server may still be working on it; please try again in a moment.'
+      )
+    }
     throw new Error('Could not reach the Rihla backend. Check that it is running, then try again.')
+  } finally {
+    clearTimeout(timer)
   }
 
   if (!response.ok) {
-    let detail = `Request failed (${response.status}). No trip was generated.`
-
-    // Not signed in (or the session expired): the caller asks to log in and retries once.
-    if (response.status === 401) {
-      throw new AuthRequiredError(await readError(response, 'Please log in to plan your trip.'))
-    }
+    await requireSession(response, login)
+    let detail = `Request failed (${response.status}).`
 
     // The backend's own diagnosis (app/diagnostics.py: which failure, and the error id in its log) is more
     // useful than a generic message for its status.
@@ -93,40 +126,44 @@ export async function createTrip(trip, sessionId) {
       // Keep the HTTP error message.
     }
 
-    throw new Error(diagnosed || STATUS_MESSAGES[response.status] || detail)
+    if (diagnosed) throw new Error(`${diagnosed} ${outcome}`)
+    if (response.status === 402) throw new Error(`The AI provider declined the request (payment required). ${outcome}`)
+    if (response.status === 503) {
+      throw new Error(`The trip planning service is temporarily unavailable. ${outcome} Please try again later.`)
+    }
+    throw new Error(`${detail} ${outcome}`)
   }
 
   try {
     return await response.json()
   } catch {
-    throw new Error('The planner returned an unreadable response. No trip was generated.')
+    throw new Error(`The planner returned an unreadable response. ${outcome}`)
   }
 }
 
-// POST /api/chat with a change to the itinerary on screen. `baseVersion` is the plan_version it shows: the
-// backend refuses a change made on an older version. Resolves with the backend's answer whatever it is (a
-// revised itinerary, a question, a refusal); throws only when there is no answer, and nothing was changed.
-const REVISION_STATUS_MESSAGES = {
-  402: 'The AI provider declined the request (payment required).',
-  503: 'The trip planning service is temporarily unavailable, please try again later.',
+export async function createTrip(trip, sessionId, timeoutMs = tripRequestTimeoutMs(trip)) {
+  return postChat(
+    { session_id: sessionId, message: buildTripMessage(trip), trip: buildTripForm(trip) },
+    timeoutMs,
+    NEW_TRIP,
+  )
 }
 
-export async function reviseTrip(sessionId, message, baseVersion) {
-  let response
-  try {
-    response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, message, revision: true, base_version: baseVersion || null }),
-    })
-  } catch {
-    throw new Error('Could not reach the Rihla backend. Your itinerary was not changed.')
+// POST /api/chat with a change to the itinerary on screen, in the same session: the backend revises the session's
+// plan (app/revision.py), it never plans an unrelated trip. `baseVersion` is the plan_version on screen: the backend
+// refuses a change made on an older version. Resolves with the backend's answer whatever it is (a revised
+// itinerary, a question, a refusal); throws only when there is no answer, and then nothing was changed.
+export async function reviseTrip(sessionId, message, baseVersion = null, timeoutMs = TRIP_REQUEST_TIMEOUT_MS) {
+  const text = String(message || '').trim()
+  if (!sessionId) {
+    throw new Error('This trip has no planning session on the server, so it cannot be changed. Plan it again from the home page.')
   }
-  if (!response.ok) {
-    const detail = await readError(response, `The change failed (${response.status}).`)
-    throw new Error(`${REVISION_STATUS_MESSAGES[response.status] || detail} Your itinerary was not changed.`)
-  }
-  const body = await response.json().catch(() => null)
+  if (!text) throw new Error('Type the change you would like to make.')
+  const body = await postChat(
+    { session_id: sessionId, message: text, revision: true, base_version: baseVersion || null },
+    timeoutMs,
+    REVISION,
+  )
   if (!body || typeof body !== 'object') {
     throw new Error('The planner returned an unreadable response. Your itinerary was not changed.')
   }
@@ -143,34 +180,22 @@ async function readError(response, fallback) {
   return fallback
 }
 
-const APPROVE_ERRORS = {
-  400: 'This approval does not belong to the current itinerary. Plan the trip again to approve it.',
-  403: 'This itinerary did not pass verification (or changed after it), so it cannot be approved.',
-  404: 'There is no approval waiting for this itinerary any more (the server may have restarted). Plan the trip again.',
-}
-
-// POST /api/approve: saves a VERIFIED itinerary in the Rihla Trip Store. Resolves only after the backend
-// confirmed the save; a repeat of the same approval returns the trip already saved, never a second one.
+// POST /api/approve for the save_trip action of a plan the approval policy made eligible
+// (app/approval_policy.py). Resolves only after the backend confirmed the save with a trip ID; a repeat of the
+// same approval returns the trip already saved, never a second one. The call itself is services/approval.js.
 export async function approveTrip(sessionId, actionId) {
-  let response
-  try {
-    response = await fetch('/api/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, action_id: actionId, approved: true }),
-    })
-  } catch {
-    throw new Error('Could not reach the Rihla backend. Your trip was not saved; try again.')
-  }
-  if (!response.ok) {
-    const detail = await readError(response, `Approval failed (${response.status}). The trip was not saved.`)
-    throw new Error(APPROVE_ERRORS[response.status] || detail)
-  }
-  const body = await response.json().catch(() => null)
-  if (body?.status !== 'approved' || !body?.trip?.trip_id) {
+  const out = await sendApproval({ sessionId, actionId, approved: true })
+  if (out.status !== 'approved' || !out.tripId) {
     throw new Error('The backend did not confirm the save. The trip was not marked as approved.')
   }
-  return { trip: body.trip, alreadyApproved: body.already_approved === true, message: body.message || '' }
+  return { trip: { ...(out.trip || {}), trip_id: out.tripId }, alreadyApproved: out.alreadyApproved, message: out.message }
+}
+
+// POST /api/approve with approved: false. Nothing is written; resolves with the backend's reply.
+export async function rejectTrip(sessionId, actionId) {
+  const out = await sendApproval({ sessionId, actionId, approved: false })
+  if (out.status !== 'rejected') throw new Error('The backend did not confirm the rejection.')
+  return { message: out.message }
 }
 
 async function getJson(url, what) {
@@ -180,6 +205,7 @@ async function getJson(url, what) {
   } catch {
     throw new Error(`Could not reach the Rihla backend to load ${what}.`)
   }
+  await requireSession(response, 'Your session ended. Please log in again to see your trips.')
   if (!response.ok) {
     throw new Error(await readError(response, `Loading ${what} failed (${response.status}).`))
   }
@@ -190,13 +216,13 @@ async function getJson(url, what) {
   }
 }
 
-// GET /api/trips: the approved trips saved in the Rihla Trip Store (summaries).
+// GET /api/trips: the approved trips saved in the Rihla Trip Store for the signed-in user (summaries).
 export async function listApprovedTrips() {
   const body = await getJson('/api/trips', 'your saved trips')
   return Array.isArray(body?.trips) ? body.trips : []
 }
 
-// GET /api/trips/{id}: one approved trip with its full itinerary.
+// GET /api/trips/{id}: one approved trip with its full itinerary (404 when it is not the signed-in user's).
 export async function getApprovedTrip(tripId) {
   return getJson(`/api/trips/${encodeURIComponent(tripId)}`, 'the saved trip')
 }

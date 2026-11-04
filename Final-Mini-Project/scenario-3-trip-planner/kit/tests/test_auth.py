@@ -191,7 +191,8 @@ def test_the_real_trip_endpoints_refuse_an_anonymous_call_when_sign_in_is_requir
 def test_with_sign_in_optional_the_official_contract_stays_open(monkeypatch):
     monkeypatch.setenv("RIHLA_AUTH_REQUIRED", "false")
     r = TestClient(real_app()).post("/api/approve", json={"session_id": "eval-1", "action_id": "a", "approved": True})
-    assert r.status_code == 404  # reached the real endpoint: no pending action in that session
+    # reached the real endpoint: no pending action in that session (CONTRACT §3: a clear reply, nothing written)
+    assert r.status_code == 200 and r.json()["status"] == "no_pending_action" and r.json()["result"] is None
 
 
 def test_a_signed_in_user_gets_their_own_traveller_and_an_anonymous_call_the_demo_one(monkeypatch):

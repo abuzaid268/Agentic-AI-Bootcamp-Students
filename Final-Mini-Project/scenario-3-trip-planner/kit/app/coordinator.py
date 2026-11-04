@@ -1,9 +1,12 @@
 import os
+import re
 from typing import Literal
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from crewai import Agent, Crew, LLM, Process, Task
+
+from app.contract import record_llm_usage
 
 
 load_dotenv()
@@ -210,6 +213,9 @@ Instructions:
 
 16. If the user explicitly names places they want
     to visit, extract them into required_places.
+    Only named sights, venues or landmarks to visit. An area
+    that only says where (e.g. "near the old city",
+    "in the centre", "downtown") is not a required place.
 
 17. Return structured output matching TripRequestInfo.
 """
@@ -241,10 +247,27 @@ Instructions:
     )
 
     result = crew.kickoff()
+    record_llm_usage(getattr(result, "token_usage", None))  # this request's usage (the API's usage field)
 
     if result.pydantic is None:
         raise ValueError(
             "Coordinator did not return valid structured output."
         )
 
-    return result.pydantic.model_dump()
+    info = result.pydantic.model_dump()
+    info["required_places"] = required_sights(info.get("required_places"))
+    return info
+
+
+# Words for "an area of the city", not a place to visit: "restaurants near the old city" asks where, not what.
+_AREA = re.compile(r"^(the\s+)?(old|historic(al)?|new|modern)?\s*(city|town|centre|center|downtown|quarter|district|"
+                   r"area|neighbou?rhood|part of (the )?(city|town))(\s+(centre|center))?$", re.IGNORECASE)
+
+
+def required_sights(places) -> list[str] | None:
+    """The required places without generic area phrases ("old city", "city centre", "downtown"), which no listing can
+    match and which the traveller gave as a location, not as something to visit. Named places are kept as given."""
+    if not places:
+        return places
+    kept = [p for p in places if isinstance(p, str) and p.strip() and not _AREA.match(p.strip())]
+    return kept

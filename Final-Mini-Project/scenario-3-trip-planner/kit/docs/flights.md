@@ -6,7 +6,7 @@
 - Rihla never books flights, creates orders or takes payments.
 - Flight prices are kept apart from the trip budget.
 
-**Status:** not yet wired into the app. Wiring it in is two small handoffs, described at the end of this file.
+**Status:** wired into the app. The trip page's "Weather and flights" section (`TripTravelInfo`) offers it, closed until the traveller opens it, and a failure in that section cannot take the itinerary down with it (see "Isolation"). No Duffel token is configured on this project, so every search answers with **DEMO** data, clearly labelled; **no real Duffel call has ever been made**.
 
 | Part | File |
 |---|---|
@@ -18,8 +18,13 @@
 | React: form and results | `rihla-frontend/src/features/flights/FlightSearch.jsx` |
 | React: one offer | `rihla-frontend/src/features/flights/FlightOfferCard.jsx` |
 | API client and pure helpers | `rihla-frontend/src/features/flights/flightsApi.js`, `flightState.js` |
-| Tests | `tests/test_flights.py` (91), `rihla-frontend/src/features/flights/flights.test.js` (20) |
+| Airports near a chosen city (`GET /api/airports/near`) | `app/airports/service.py` (`AirportSearch.nearest`), `app/airports/routes.py` |
+| React: the nearby-airports list | `rihla-frontend/src/features/airports/NearbyAirports.jsx`, `airportState.js` |
+| React: error boundary around the trip page's weather and flights | `rihla-frontend/src/features/trip-travel/TravelInfoBoundary.js` |
+| Tests, backend | `tests/test_flights.py`, `tests/test_flights_integration.py`, `tests/test_airports_near.py` |
+| Tests, frontend | `features/flights/flights.test.js`, `flightComparison.test.js`, `features/airports/nearby.test.js`, `features/trip-travel/travelBoundary.test.js` |
 | Real DEMO answer used by the frontend tests | `rihla-frontend/src/features/flights/fixtures/demo_tlv_lhr_round_trip.json` |
+| Real nearby-airport answers used by the frontend tests | `rihla-frontend/src/features/airports/fixtures/near_*.json` |
 
 ## Provider selection
 
@@ -261,6 +266,43 @@ Errors have the shape `{"error": {"code", "message", "retryable", "field"?, "ret
 
 **Failures are never cached and never replaced by DEMO data.** A traveller in TEST or LIVE mode sees the error, not made-up flights.
 
+## Choosing the airports
+
+Flights are searched between **airports**, and a city is not an airport: the trip's cities are used only to propose
+airports, and the traveller chooses. Everything below is local data (OurAirports, public domain): no network, no key.
+
+- `GET /api/airports/near?lat=…&lon=…&country=IL` lists the airports near a place, nearest first, each with its
+  `distance_km` and `in_country`. Only airports a traveller can fly from are offered: an IATA code, coordinates and
+  OurAirports' scheduled-service flag. That flag is data, **not a promise that an airline flies there today or that a
+  route exists**; nothing here says which routes are served. Every parameter is validated (coordinates in range, a
+  known two-letter country, 1–500 km, 1–10 airports) with the same error shape as the other airport routes.
+- **The place's country decides.** Airports in the place's own country are listed up to 150 km; an airport across a
+  border only when it is within 80 km, always marked `in_country: false` ("In Jordan, outside Israel", "Other
+  country"). Paris, France and Paris, Texas are told apart by coordinates and country, never by name: Texas lists
+  Tyler and Texarkana, 146 km away, and no French airport; France lists Orly and Charles de Gaulle.
+- **A city without an airport** is handled honestly. Jerusalem lists Tel Aviv (41 km, same country) and Amman (74 km)
+  and Amman Civil (77 km) marked as another country, with a reminder to check entry rules. Where nothing is within
+  reach the list says so, and the traveller searches by name or code.
+- **Ranked by distance only.** The list says so: the nearest airport is not always the best one for the route
+  (Istanbul's nearest is Sabiha Gökçen, but Istanbul Airport is as real a choice).
+- **Preselecting.** An airport is put into its box only when exactly one clearly qualifies: it is the only airport with
+  scheduled service within 100 km in the place's own country, it is within 60 km, and none across the border is within
+  80 km (`suggested` in the answer). Tbilisi, Cusco and Santiago qualify; London, Paris, Rome, Istanbul, Tokyo, Amman and
+  Jerusalem do not, and the traveller chooses. The preselected airport is an ordinary, editable choice, it never
+  replaces something the traveller already did in that box, and the list says it was preselected.
+- Without a country, `in_country` is null and nothing is ever suggested.
+
+## Isolation
+
+- The "Weather and flights" section is wrapped in `TravelInfoBoundary`: if it throws while rendering, only a short
+  notice ("Weather and flights could not be shown. Your itinerary is not affected.", with "Try again") replaces it.
+  Event handlers and network failures are not caught by boundaries; `FlightSearch` handles its own in state.
+- `GET /api/flights` is a separate route. A flight failure (Duffel down, slow, refusing) is a clear error for that route
+  only; `POST /api/chat` does not call it and works the same. A test runs both in one app.
+- The plan, the budget and the chat contract do not use flight search at all (a test checks every module that builds
+  them, and `budget_analyst` lists "flights and intercity transport" as not priced).
+
+
 ## Component
 
 ```jsx
@@ -269,9 +311,31 @@ import { FlightSearch } from './features/flights'
 <FlightSearch />
 ```
 
+**Optional starting values from a trip.** These props only fill the form when it first appears; what the
+traveller changes afterwards is kept. Remount with a new `key` for another trip (`TripTravelInfo` does this, see
+`docs/frontend-integration.md`). A hint is text typed into an airport box, which then lists matching airports.
+
+```jsx
+<FlightSearch departureHint="London" departureCountry="GB" arrivalHint="Amman"
+  departurePlace={fromCity} arrivalPlace={toCity}
+  departureDate="2026-12-01" returnDate="2026-12-08" adults={2} title="Flights for this trip" />
+```
+
+- `departurePlace` and `arrivalPlace` are the cities chosen in the destination box (`name`, `region`, `country`,
+  `countryCode`, `latitude`, `longitude`). A place without a name, a country code or real coordinates is dropped, never
+  completed. With one, the form lists the airports near it (see "Choosing the airports"), and its country starts that
+  side's country picker (`arrivalCountry` and `departureCountry` do the same by themselves).
+- A country code that the countries list does not contain is dropped, not kept as a hidden filter.
+- A party of more than 9 starts at 9 adults, and the form says so.
+- A start date without a return date starts a one-way search.
+
 **The form:**
-- "From" and "To" are `AirportSearch` boxes from `features/airports`. They search worldwide and need an airport with an IATA code.
-- Round trip or one way.
+- Optional **Departure country** and **Arrival country** pickers (from `GET /api/airports/countries`). Choosing a
+  country empties that box and limits it to that country's airports; "Any country" searches worldwide. Without the
+  countries route (an older server), the pickers are simply not shown.
+- "From" and "To" are `AirportSearch` boxes from `features/airports`. They need an airport with an IATA code.
+- Round trip or one way, with a line that says what it means: round trip is one price for the outbound and the
+  return flight together, one way is the outbound flight only. Adults only (up to 9) and no multi-city trips.
 - Departure and return dates. Past dates can't be picked.
 - Adults, 1–9, and the cabin class.
 - The form checks itself before sending. Server errors are shown next to the field they name.
@@ -281,18 +345,27 @@ import { FlightSearch } from './features/flights'
 
 **The results:**
 - A banner with the data-mode badge, the provider, the notices and the retrieval time.
-- A sort control: lowest price, highest price, or shortest travel time. Each currency is sorted on its own.
+- **Cheapest vs fastest**, one line per currency: "The cheapest offer is also the fastest", or both offers with the
+  extra cost of the fastest and the time it saves. On DEMO and TEST data the line repeats "simulated, not bookable".
+  Prices in different currencies are never compared.
+- What was searched, as the server ran it ("Round trip · TLV ⇄ LHR · 2 adults · 2026-12-01 to 2026-12-08").
+- A sort control: lowest price, highest price, or shortest travel time (offers with an unknown duration last). Each
+  currency is sorted on its own.
 - A warning when the offers are in more than one currency.
 - One card per offer, showing:
   - the airline;
-  - the total price for all passengers;
+  - a **Round trip** or **One way** tag, and "both directions" or "outbound only" beside the price;
+  - the total price for all passengers, and **under it a line that says what the price is**: "Simulated price · not a
+    real fare · not bookable" (DEMO), "Test price · not a real fare · not bookable" (TEST), or the provider price that
+    changes and expires and is not bookable on Rihla (LIVE);
   - the outbound and return times and dates, with "+1" for an overnight arrival, and whether times are local or UTC;
-  - the duration, the stops and the connection airports;
+  - the duration, the stops and the connection airports, and the total travel time of a round trip;
   - the flight numbers;
   - the baggage, or "not stated";
   - the cabin;
   - "Offer valid until".
-- A "Cheapest in USD" tag on the cheapest offer of each currency.
+- A "Cheapest in USD" tag and a "Fastest in USD" tag per currency. The fastest is the shortest whole journey (both
+  directions), the cheaper one on a tie; an offer with any unknown duration is never called fastest.
 - Loading, empty and error states. An error that can be retried shows "Try again".
 
 **Accessibility:**
@@ -304,61 +377,46 @@ import { FlightSearch } from './features/flights'
 
 **No booking:** the component has no book, buy or pay button, and the frontend has no POST to flights. A test checks this.
 
-## Handoffs (not done here: these files belong to other members)
+## Wiring
 
-### Member 1 (backend owner): install the route
+Done. Kept here for the next person to deploy it.
 
-Add two lines to `app/main.py`, after `app = FastAPI(...)`, using the same pattern as `install_auth`, `install_destinations` and `install_airports`:
+- **Backend:** `app/main.py` calls `install_flights(app)` and `install_airports(app)` (on `main`, `a26c63e`).
+- **Frontend:** `TripDashboard.jsx` renders `TripTravelInfo` for a generated trip (never the sample), inside
+  `TravelInfoBoundary`. `TripTravelInfo` passes the FROM and TO cities as `departurePlace` and `arrivalPlace`.
+- **Docker:** no change is needed. The `app` service loads `kit/.env`, so a `DUFFEL_ACCESS_TOKEN` in `.env` reaches the
+  container at run time and is never part of an image. Without a token the container runs in DEMO mode.
+- **For any public deployment** use `docker-compose.prod.yml`, which sets `RIHLA_ENV=production`, or set it in the
+  hosting tool. Without it the server counts as development and shows DEMO flights, clearly labelled; with it and no
+  approved LIVE provider, flight search says it is unavailable.
 
-```python
-from app.flights import install_flights
-install_flights(app)
-```
-
-**For any public deployment, use `docker-compose.prod.yml`, which sets `RIHLA_ENV=production`, or set it in the hosting tool.**
-- Without it, the server counts as development and shows DEMO flights, clearly labelled.
-- With it and no approved LIVE provider, flight search says it is unavailable.
-
-**Leave the crew alone.**
-- Don't give flights to the crew, and don't add them to `estimated_cost` or `budget_total`.
-- `/api/chat`, `/api/approve` and the official contract stay unchanged.
+**Leave the crew alone.** Don't give flights to the crew, and don't add them to `estimated_cost` or `budget_total`.
+`/api/chat`, `/api/approve` and the official contract stay unchanged.
 
 **Verify:**
-- `curl "http://localhost:8000/api/flights?origin=TLV&destination=LHR&departure_date=<a future date>"` returns `"data_mode": "DEMO"`, or `TEST` when the token is set.
-- `python -m pytest -q tests/test_flights.py` passes.
-
-**Docker:** no change is needed.
-- The `app` service in `docker-compose.yml` already loads `kit/.env` through `env_file`.
-- So a `DUFFEL_ACCESS_TOKEN` in `.env` reaches the container at run time, and it is never part of the image.
-- Without a token, the container runs in DEMO mode.
-
-### Member 2 (frontend owner): show the panel
-
-Render `<FlightSearch />` as its own section or page, for example "Flights (optional)" next to the plan:
-
-```jsx
-import { FlightSearch } from './features/flights'
-// …
-<section className="mx-auto max-w-5xl px-4 py-10">
-  <FlightSearch />
-</section>
-```
-
-- Keep it outside the trip form and the budget totals.
-- No props are needed.
-
-**Verify:**
-1. Choose TLV and LHR, pick dates, and press "Search flights".
-2. The violet "DEMO" banner and 4 cards sorted by price appear.
-3. "Cheapest in USD" is on the first card.
+- `curl "http://localhost:8000/api/flights?origin=TLV&destination=LHR&departure_date=<a future date>"` returns
+  `"data_mode": "DEMO"`, or `TEST` when a test token is set.
+- `curl "http://localhost:8000/api/airports/near?lat=31.769&lon=35.216&country=IL"` lists Tel Aviv, with Amman marked
+  `"in_country": false`.
+- `python -m pytest -q tests/test_flights.py tests/test_flights_integration.py tests/test_airports_near.py` passes, and
+  so does `npm test` in `rihla-frontend`.
+- In the browser: finish a trip, open "Compare flights (optional)", choose airports, search. The violet DEMO banner, a
+  "Simulated price · not bookable" line on every card, and the "Cheapest vs fastest" line appear.
 
 ## Known limitations
 
-- **Duffel is untested against the real service.** The adapter has not called Duffel yet, because there was no token. TEST data, even once connected, is Duffel Airways with unrealistic prices.
+- **Duffel is untested against the real service.** The adapter has not called Duffel yet, because there was no token.
+  It is tested against synthetic answers in Duffel's documented shape, including end to end with a mocked Duffel
+  (`tests/test_flights_integration.py`). TEST data, even once connected, is Duffel Airways with unrealistic prices.
 - **LIVE needs approval.** It is off unless explicitly allowed, and live searches may be billed by Duffel.
 - **DEMO data is not an estimate.** Its prices and times are made up and must never be read as real fares.
 - **Search options:** adults only, with no children or infants; at most one connection; no flexible dates; no multi-city trips.
-- **Airport codes:** the bundled airport data decides which codes are known. A real airport missing from that data is refused with `unknown_airport`.
+- **Airport codes:** the bundled airport data decides which codes are known. A real airport missing from that data is
+  refused with `unknown_airport`. "Scheduled service" is OurAirports' flag, not a list of routes.
+- **Nearby airports** are straight-line distances: they say nothing about road or rail travel, border crossings, or
+  which airport has the flights a traveller needs.
 - **Times:** Duffel's times are local without a UTC offset, so cards can't compare times across time zones. Durations come from the provider.
 - **Caching and limits:** the cache and the per-minute cap are per server process and in memory.
 - **Currencies:** no currency conversion. The kit's ECB tool is for the itinerary budget, not for comparing flight prices.
+- **Not tested in a real browser or DOM.** The components are checked as rendered HTML and through their pure logic;
+  the error boundary is checked through its contract. See the test files above.

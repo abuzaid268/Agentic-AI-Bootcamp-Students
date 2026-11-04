@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
-import { createTrip } from './services/tripApi'
+import { useEffect, useRef, useState } from 'react'
+import { createTrip, LONG_TRIP_DAYS, tripDays } from './services/tripApi'
 import { validateTripResult } from './services/tripResult'
 import { validateTripForm } from './services/tripForm'
 import { useAuth } from './auth/authContext'
 import { AuthRequiredError } from './auth/authApi'
 import NavAuth, { Avatar } from './auth/NavAuth'
+import { DestinationSearch } from './features/destinations'
 
 const LIVE_AI_ENABLED = import.meta.env.VITE_ENABLE_LIVE_AI === 'true'
 
@@ -13,7 +14,6 @@ import {
   ArrowRight,
   CalendarDays,
   Compass,
-  MapPin,
   Menu,
   X,
   Plane,
@@ -27,6 +27,10 @@ export default function App() {
   const location = useLocation()
   const { user, loggingOut, requireAuth, openLogin, logout, sessionExpired } = useAuth()
   const [destination, setDestination] = useState('')
+  // The cities chosen from the suggestions (coordinates, country): for the trip page's weather and flights only,
+  // never sent to the planner. null when the text was typed without choosing, or changed after choosing.
+  const [destinationPlace, setDestinationPlace] = useState(null)
+  const [originPlace, setOriginPlace] = useState(null)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [travellers, setTravellers] = useState('2')
@@ -38,6 +42,8 @@ export default function App() {
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  // Set synchronously: a second submit before React re-renders (double Enter, double click) sees it at once.
+  const requestInFlight = useRef(false)
 
   // A real clock while the backend works (it reports no stages yet): never an invented progress bar.
   useEffect(() => {
@@ -59,6 +65,8 @@ export default function App() {
 
   // `owner` is the signed-in user the trip is generated for: the dashboard shows it to that account only.
   const generateTrip = async (trip, owner) => {
+    if (requestInFlight.current) return // one request at a time, even before the next render
+    requestInFlight.current = true
     setElapsed(0)
     setIsLoading(true)
 
@@ -82,13 +90,14 @@ export default function App() {
       }
       setError(err instanceof Error ? err.message : 'Unable to plan your trip.')
     } finally {
+      requestInFlight.current = false
       setIsLoading(false)
     }
   }
 
   const handleSubmit = (event) => {
     event.preventDefault()
-    if (isLoading) return // one request at a time
+    if (isLoading || requestInFlight.current) return // one request at a time
     setError('')
 
     const trip = {
@@ -99,6 +108,9 @@ export default function App() {
       budget,
       interests,
       customPreferences,
+      // not sent to /api/chat (buildTripForm and buildTripMessage pick their own fields): the trip page reads them
+      destinationPlace,
+      originPlace,
     }
 
     const problems = validateTripForm(trip)
@@ -252,22 +264,27 @@ export default function App() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <label className="block">
-                  <span className="mb-2 block text-xs font-medium text-white/85">
-                    Destination
-                  </span>
-                  <div className="flex items-center gap-3 rounded-2xl border border-white/30 bg-white/15 px-4 py-4">
-                    <MapPin size={18} className="shrink-0 text-[#b7e6e4]" />
-                    <input
-                      required
-                      maxLength={100}
-                      value={destination}
-                      onChange={(e) => setDestination(e.target.value)}
-                      placeholder="City, Country (e.g. Paris, France)"
-                      className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/55"
-                    />
-                  </div>
-                </label>
+                {/* Worldwide city search (docs/destinations.md): the form still sends plain text; a chosen
+                    suggestion sends its full label ("Paris, Île-de-France Region, France"), never a guess. */}
+                {/* FROM (optional) -> TO. FROM only starts the trip page's flight search; it is not sent to the
+                    planner. Both keep the chosen place (coordinates, country) through onSelect. */}
+                <DestinationSearch
+                  label="From (optional, for flights)"
+                  tone="dark"
+                  placeholder="Your city (e.g. London)"
+                  clearLabel="Clear departure city"
+                  onSelect={setOriginPlace}
+                />
+                <DestinationSearch
+                  label="To"
+                  tone="dark"
+                  placeholder="City, Country (e.g. Paris, France)"
+                  defaultValue={destination}
+                  onTextChange={setDestination}
+                  onSelect={setDestinationPlace}
+                  required
+                />
+
 
                 <div className="grid grid-cols-2 gap-3">
                   {[
@@ -418,8 +435,10 @@ export default function App() {
 
                 {isLoading && (
                   <p role="status" className="text-center text-xs text-white/80">
-                    Researching places, pricing them, building and checking the day plan. This usually takes
-                    one to two minutes; please keep this page open.
+                    Researching places, pricing them, building and checking the day plan.{' '}
+                    {tripDays({ departureDate: startDate, returnDate: endDate }) > LONG_TRIP_DAYS
+                      ? `A ${tripDays({ departureDate: startDate, returnDate: endDate })}-day trip has more to plan and check: this can take several minutes`
+                      : 'This usually takes one to two minutes'}; please keep this page open.
                   </p>
                 )}
 

@@ -594,3 +594,11 @@ def test_a_failed_verifier_agent_leaves_pythons_verdict_and_ranking():
     assert (out.status, out.verified, out.decided_by) == (report.status, report.verified, "python")
     assert out.summary == AGENT_FAILED_SUMMARY and out.guardrail_rejections == [{"problems": {"prose": 2}}]
     assert out.revision_targets == report.revision_targets
+
+
+def test_more_findings_than_one_answer_holds_are_ranked_by_python_with_the_same_verdict():
+    # a 22-day plan had 55 unknowns: the agent's answers failed their guardrail for minutes, then Python ranked them
+    r = long_report(errors=5, unknowns=50, warnings=0)
+    out = explain_verification(r, native("this LLM must not be called"))
+    assert out.decided_by == "python" and "Python's own ranking" in out.summary
+    assert (out.status, out.verified) == (r.status, r.verified) and len(out.prioritized) == 55

@@ -1,3 +1,4 @@
 export { default as AirportSearch } from './AirportSearch.jsx'
-export { AirportSearchError, searchAirports } from './airportsApi.js'
-export { airportCode, routeError, shouldSearch } from './airportState.js'
+export { default as NearbyAirports } from './NearbyAirports.jsx'
+export { AirportSearchError, fetchAirportCountries, fetchNearbyAirports, searchAirports } from './airportsApi.js'
+export { airportCode, cleanNearbyPlace, routeError, shouldSearch } from './airportState.js'

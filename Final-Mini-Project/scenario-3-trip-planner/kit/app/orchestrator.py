@@ -11,7 +11,11 @@ from app.revision import plan_state_from, run_trip_revision
 from app.verification_loop import verify_with_retries
 from planning.research import ResearchBundle
 from app.research_adapter import ResearchInputError, run_research_pipeline
+from app.traveller_memory import apply_preferences
+from planning.evidence import checkable_bundle
+from researcher.mcp_client import stage
 from app.diagnostics import budget_decisions, performance_summary, research_summary
+from app.research_errors import attraction_failure_message
 from app.coverage import (
     assess_coverage,
     assess_density,
@@ -214,6 +218,31 @@ def orchestrate_trip(
     trip_form: dict | None = None,
     base_version: str | None = None,
     revision_request: bool = False,
+    preferences: dict | None = None,
+) -> dict:
+    """
+    Coordinate the trip planning workflow.
+
+    `preferences` are the identified traveller's saved preferences (app/traveller_memory.py). They fill only
+    the trip details the traveller did not give; what was used is returned as "preferences_used".
+    """
+    used: list[str] = []
+    result = _orchestrate_trip(user_request, session_id, research_bundle, trip_form, base_version,
+                               revision_request, preferences, used)
+    if used:
+        result["preferences_used"] = used
+    return result
+
+
+def _orchestrate_trip(
+    user_request: str,
+    session_id: str | None,
+    research_bundle: ResearchBundle | None,
+    trip_form: dict | None,
+    base_version: str | None,
+    revision_request: bool,
+    preferences: dict | None,
+    preferences_used: list[str],
 ) -> dict:
     """
     Coordinate the trip planning workflow.
@@ -231,6 +260,18 @@ def orchestrate_trip(
     if session_id is not None:
         session = get_session(session_id)
         previous_trip_details = session.get("trip_details", {}).copy()
+
+    # The dashboard's change box always edits this session's current plan. Do not spend a
+    # Coordinator call classifying it or let a missing plan fall through to new-trip planning.
+    if revision_request:
+        if session is None:
+            return {
+                "status": "needs_clarification",
+                "message": "There is no existing itinerary to revise in this session. Plan a trip first, then ask "
+                           "for changes.",
+                "revision": {"outcome": "no_plan"},
+            }
+        return run_trip_revision(session, user_request, previous_trip_details, base_version=base_version)
 
     # STEP 2: Coordinator Agent. The structured form's own fields are used as
     # entered (the exact interests the traveller selected); the LLM reads only
@@ -254,12 +295,6 @@ def orchestrate_trip(
 
     intent = trip_info["intent"]
     print(f"1. Coordinator detected intent: {intent}")
-    # The dashboard's "Ask for a change" box only sends changes to the plan on screen: never a new trip.
-    if revision_request and session is not None and session.get("plan_state") is not None \
-            and intent != "revise_trip":
-        print(f"   change box: treated as a revision (the Coordinator said {intent})")
-        intent = "revise_trip"
-
     # STEP 3: Handle revision requests: the plan kept in this session is revised in place (targeted changes,
     # the Revision Agent for the choices, then the same verification as a new plan). See app/revision.py.
     if intent == "revise_trip":
@@ -304,6 +339,9 @@ def orchestrate_trip(
             trip_info["duration_days"] = duration
             update_trip_details(session_id, {"duration_days": duration})
 
+    # STEP 6b: a returning traveller's saved preferences fill what this request left out
+    preferences_used.extend(apply_preferences(trip_info, preferences))
+
     # STEP 7: Validate required fields
     required_fields = (
         "destination",
@@ -346,7 +384,8 @@ def orchestrate_trip(
     started = time.perf_counter()
     if research_bundle is None:
         try:
-            research_bundle = run_research_pipeline(trip_info)
+            with stage("researcher"):
+                research_bundle = run_research_pipeline(trip_info)
         except ResearchInputError as error:
             return {
                 "status": "needs_clarification",
@@ -381,12 +420,29 @@ def orchestrate_trip(
         print("2. ResearchBundle received")
         print("\n".join(research_summary(research_bundle)))
 
+        # The attractions source failed and returned nothing: say so, propose nothing, never fill in sights.
+        attraction_failures = [f for f in research_bundle.failures if f.tool == "find_attractions"]
+        if attraction_failures and not any(p.category == "attraction" for p in research_bundle.places):
+            return {
+                "status": "research_unavailable",
+                # the reason decides the advice: recorded data, no guide, or a source to retry (app/research_errors.py)
+                "message": attraction_failure_message(research_bundle.trip.destination, attraction_failures[0]),
+            }
+
         destination = research_bundle.trip.destination
         hours_lookup = create_hours_lookup(destination)
         # Walks over the threshold (the traveller's, else RIHLA_MAX_WALK_MINUTES, 30) are measured by car too.
         walk_limit = research_bundle.trip.max_walk_minutes or max_walk_minutes()
         travel_lookup = create_travel_lookup(destination, mode="foot", ride_after_minutes=walk_limit)
         llm = create_planning_llm()
+
+        # Plan from places whose hours, price and walking legs can be checked, when there are enough of them
+        # (planning/evidence.py): nothing is filled in; what is set aside is said in the plan's limitations.
+        started_evidence = time.perf_counter()
+        research_bundle, evidence_notes = checkable_bundle(research_bundle, travel_lookup)
+        timings["evidence_ms"] = round((time.perf_counter() - started_evidence) * 1000)
+        for note in evidence_notes:
+            print("   evidence:", note)
 
         planning_result = run_planning_pipeline(
             research_bundle,
@@ -507,6 +563,7 @@ def orchestrate_trip(
         notes = " ".join(filter(None, [coverage.warning(), density.message()])) or None
         summary = traveller_summary(trip_info, planning_result["budget_report"],
                                     planning_result.get("planner_report"), final_model)
+        summary["limitations"] = list(summary.get("limitations") or []) + evidence_notes
 
         # Session memory for later revisions: the whole plan, so a change needs no new research or plan.
         plan_version = None

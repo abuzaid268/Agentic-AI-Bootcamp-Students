@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.airports import AirportError, AirportSearch, install_airports, normalize_airport, normalize_query
 from app.airports.build_dataset import OUTPUT_COLUMNS, build, keep_row
-from app.airports.service import DATA_PATH, META_PATH, read_airports, resolve_duplicate_codes
+from app.airports.service import DATA_PATH, META_PATH, _fold, read_airports, resolve_duplicate_codes
 
 SEARCH = AirportSearch()  # the bundled data, loaded once for the whole module
 
@@ -289,3 +289,54 @@ def test_build_keeps_passenger_airports_and_adds_names(tmp_path):
 ])
 def test_which_rows_the_build_keeps(fields, kept):
     assert keep_row(row(**fields)) is kept
+
+
+# ------------------------------------------------------------------ departure country
+def test_a_country_filter_keeps_only_that_countrys_airports():
+    body = get("International", country="jo", limit=10).json()
+    assert body["results"] and {a["country_code"] for a in body["results"]} == {"JO"}
+    assert "AMM" in codes(body)
+    # "London" in Canada only: London, Ontario, never Heathrow.
+    assert codes(get("London", country="CA").json())[0] == "YXU"
+    assert "LHR" not in codes(get("London", country="CA").json())
+
+
+def test_a_country_with_no_match_is_an_empty_answer():
+    body = get("Heathrow", country="JO").json()
+    assert body["count"] == 0 and body["results"] == []
+
+
+@pytest.mark.parametrize("country", ["J", "JOR", "1A", "J0"])
+def test_a_malformed_country_is_refused(country):
+    response = get("Amman", country=country)
+    assert response.status_code == 422
+    if len(country) <= 2:  # longer values are refused by FastAPI's max_length before the service sees them
+        assert response.json()["error"]["code"] == "invalid_country"
+
+
+def test_an_empty_country_means_every_country():
+    assert codes(get("London", country="").json())[:2] == codes(get("London").json())[:2]
+
+
+def test_the_country_filter_is_part_of_the_cache_key():
+    service = AirportSearch()
+    assert {a["country_code"] for a in service.search("London", country="GB")["results"]} == {"GB"}
+    assert {a["country_code"] for a in service.search("London", country="CA")["results"]} == {"CA"}
+
+
+def test_the_countries_list_comes_from_the_bundled_data():
+    response = api().get("/api/airports/countries")
+    assert response.status_code == 200 and response.headers["cache-control"] == "public, max-age=86400"
+    body = response.json()
+    by_code = {c["code"]: c for c in body["countries"]}
+    assert by_code["JO"]["name"] == "Jordan" and by_code["JO"]["airports"] >= 2
+    assert body["count"] == len(body["countries"]) > 150
+    keys = [(_fold(c["name"]), c["code"]) for c in body["countries"]]
+    assert keys == sorted(keys) and len(by_code) == len(keys)  # by name, accents ignored; one entry per code
+    assert sum(c["airports"] for c in body["countries"]) <= json.loads(META_PATH.read_text(encoding="utf-8"))["airports"]
+    assert body["source"]["licence"] == "Public domain"
+
+
+def test_the_countries_list_reports_missing_data_as_unavailable(tmp_path):
+    response = api(AirportSearch(data_path=tmp_path / "missing.csv")).get("/api/airports/countries")
+    assert response.status_code == 503 and response.json()["error"]["code"] == "data_unavailable"

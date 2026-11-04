@@ -1,13 +1,17 @@
 """The Rihla session: an HttpOnly cookie holding a signed (HS256) token, opened only from a verified sign-in.
 
 The browser's JavaScript never sees it, so a script injected into the page cannot steal it. Logging out revokes
-the session's ID on this server, not just in the browser. Revocations are kept in memory: a server restart forgets
-them, so sessions are also short (RIHLA_SESSION_TTL_HOURS).
+the session's ID on this server, not just in the browser. Revocations are kept in memory and, with
+RIHLA_SESSION_DB_PATH set (a SQLite file), on disk too: a logged-out session then stays logged out after a server
+restart. Without it a restart forgets them, so sessions are also short (RIHLA_SESSION_TTL_HOURS).
 """
 import hashlib
+import os
 import secrets
+import sqlite3
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import jwt
@@ -73,18 +77,63 @@ def read(token: str | None, s: AuthSettings, now: float | None = None) -> dict[s
     }
 
 
+_loaded_from: str | None = None  # the revocation file already read into _revoked
+
+
+def _revocation_db() -> Path | None:
+    value = os.getenv("RIHLA_SESSION_DB_PATH", "").strip()
+    return Path(value).expanduser().resolve() if value else None
+
+
+def _connect(path: Path) -> sqlite3.Connection:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=10)
+    conn.execute("CREATE TABLE IF NOT EXISTS revoked_sessions (sid TEXT PRIMARY KEY, expires_at REAL NOT NULL)")
+    return conn
+
+
+def _load_revocations() -> None:
+    """Read the revocation file once per process (and again if RIHLA_SESSION_DB_PATH changes). Call with the lock."""
+    global _loaded_from
+    path = _revocation_db()
+    if path is None or str(path) == _loaded_from:
+        return
+    with _connect(path) as conn:
+        now = time.time()
+        conn.execute("DELETE FROM revoked_sessions WHERE expires_at <= ?", (now,))
+        _revoked.update(dict(conn.execute("SELECT sid, expires_at FROM revoked_sessions")))
+    conn.close()
+    _loaded_from = str(path)
+
+
 def revoke(session_id: str, expires_at: float) -> None:
     with _revoked_lock:
+        _load_revocations()
         now = time.time()
         for sid in [sid for sid, exp in _revoked.items() if exp <= now]:
             del _revoked[sid]
+        path = _revocation_db()
+        if path is not None:  # on disk first: a logout is not reported done unless it is kept
+            with _connect(path) as conn:
+                conn.execute("INSERT OR REPLACE INTO revoked_sessions (sid, expires_at) VALUES (?, ?)",
+                             (session_id, expires_at))
+            conn.close()
         _revoked[session_id] = expires_at
 
 
 def is_revoked(session_id: str, now: float | None = None) -> bool:
     with _revoked_lock:
+        _load_revocations()
         exp = _revoked.get(session_id)
     return exp is not None and exp > (now if now is not None else time.time())
+
+
+def forget_revocations() -> None:
+    """Tests only: drop the in-memory list (as a restarted process starts), so the file is read again."""
+    global _loaded_from
+    with _revoked_lock:
+        _revoked.clear()
+        _loaded_from = None
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:

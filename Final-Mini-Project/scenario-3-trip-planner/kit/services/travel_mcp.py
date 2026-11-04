@@ -29,6 +29,13 @@ mcp = FastMCP(
                  "instructions. save_trip is a write: call it only from approval code after the traveller approved.")
 
 
+# How long a tool waits for the travel API. A live city's first fetch (its page and up to 24 district pages, at the
+# upstreams' polite rate) takes 10-25 s; the travel API stops its own upstream calls at 40 s (55 s at worst,
+# services/travel_data.py REQUEST_BUDGET_S), and the MCP client gives a whole tool call 90 s
+# (researcher/mcp_client.py CALL_TIMEOUT).
+TRAVEL_API_TIMEOUT_S = 60.0
+
+
 def api_url() -> str:
     return (os.getenv("TRAVEL_API_URL") or "http://localhost:8103").rstrip("/")
 
@@ -38,10 +45,11 @@ async def call(method: str, path: str, params: dict | None = None, body: Any = N
     h = {"X-API-Key": os.getenv("TRAVEL_API_KEY") or "dev-key-change-me", **(headers or {})}
     params = {k: v for k, v in (params or {}).items() if v is not None}
     try:
-        async with httpx.AsyncClient(base_url=api_url(), timeout=30) as client:
+        async with httpx.AsyncClient(base_url=api_url(), timeout=TRAVEL_API_TIMEOUT_S) as client:
             r = await client.request(method, path, params=params, json=body, headers=h)
     except httpx.TimeoutException:
-        return {"ok": False, "error": {"code": "timeout", "message": "The travel API did not answer in 30 s.", "status": None}}
+        return {"ok": False, "error": {"code": "timeout", "status": None,
+                                       "message": f"The travel API did not answer in {TRAVEL_API_TIMEOUT_S:g} s."}}
     except httpx.HTTPError as exc:
         return {"ok": False, "error": {"code": "unreachable", "status": None,
                                        "message": f"The travel API at {api_url()} is not reachable ({type(exc).__name__})."}}
@@ -146,7 +154,7 @@ async def list_trips(traveller_id: str) -> dict:
 @mcp.tool()
 async def get_preferences(traveller_id: str) -> dict:
     """A traveller's saved preferences (persistent memory): budget_style, interests, dietary needs, walking
-    tolerance and max_walk_minutes, home_currency, travel_party, notes. Use it at the start of a session when
+    tolerance and max_walk_minutes, home_currency, travel_party, notes, activity_pace. Use it at the start of a session when
     you know the traveller_id. ok=false with code traveller_not_found means nothing is saved yet: ask."""
     return {**await call("GET", f"/api/travellers/{traveller_id}/preferences"), **STORE}
 
@@ -155,7 +163,8 @@ async def get_preferences(traveller_id: str) -> dict:
 async def save_preferences(traveller_id: str, preferences: dict) -> dict:
     """Save or update a traveller's lasting preferences (merged into what is stored). Fields: budget_style
     (budget|mid-range|splurge), interests [str], dietary [str], walking_tolerance (low|medium|high),
-    max_walk_minutes (int), home_currency (str), travel_party (str), notes (str). Use it when the traveller
+    max_walk_minutes (int), home_currency (str), travel_party (str), notes (str), activity_pace
+    (relaxed|balanced|packed: how full the days are; a preference, never a quota). Use it when the traveller
     states a lasting preference ('remember that I am vegetarian'), not for one-off details of this trip."""
     return {**await call("PUT", f"/api/travellers/{traveller_id}/preferences", body=preferences), **STORE}
 

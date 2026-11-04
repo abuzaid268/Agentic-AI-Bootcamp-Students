@@ -1,5 +1,5 @@
 // Client for GET /api/destinations (app/destinations): worldwide city search for the destination box.
-import { normalizeQuery, sanitizeDestination } from './searchState.js'
+import { normalizeQuery, sanitizeAreas, sanitizeDestination } from './searchState.js'
 
 export class DestinationSearchError extends Error {
   constructor(message, { code = 'search_failed', retryable = false, status = null } = {}) {
@@ -16,7 +16,8 @@ const FALLBACK_MESSAGES = {
   429: 'Too many city searches right now. Please wait a moment.',
 }
 
-// Resolves to { query, results, ambiguous, source }. Throws DestinationSearchError with a message safe to show;
+// Resolves to { query, results, ambiguous, scope, areas, source }: scope is "popular" when a one- or two-letter query was
+// matched in the server's list of popular destinations, "worldwide" otherwise. Throws DestinationSearchError with a message safe to show;
 // an aborted request rethrows the AbortError so the caller can ignore it.
 export async function searchDestinations(query, { signal, limit = 8, fetchImpl = globalThis.fetch } = {}) {
   const q = normalizeQuery(query)
@@ -62,6 +63,8 @@ export async function searchDestinations(query, { signal, limit = 8, fetchImpl =
     query: typeof body.query === 'string' ? body.query : q,
     results,
     ambiguous: body.ambiguous === true && results.length > 1,
+    scope: body.scope === 'popular' ? 'popular' : 'worldwide',
+    areas: sanitizeAreas(body.areas), // the query names countries or regions: ask for a city
     source: body.source && typeof body.source === 'object' ? body.source : null,
   }
 }

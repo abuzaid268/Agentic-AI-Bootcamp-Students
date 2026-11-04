@@ -17,8 +17,9 @@ import time
 import uuid
 from typing import Any
 
+from app.contract import record_agent_tools
 from planning.revision_agent import _Run, make_decide
-from planning.user_revision import (PlanState, RevisionInfeasible, apply_revision, interpret)
+from planning.user_revision import (Interpretation, PlanState, RevisionInfeasible, apply_revision, interpret)
 
 
 class RevisionNotAvailableError(RuntimeError):
@@ -50,9 +51,14 @@ def _no_change(status: str, message: str, kind: str, state: PlanState | None) ->
 
 
 def run_trip_revision(session: dict, user_request: str, trip_info: dict, *, base_version: str | None = None,
-                      llm=None, lookups=None) -> dict[str, Any]:
+                      llm=None, lookups=None, interpretation: Interpretation | None = None,
+                      commit: bool = True) -> dict[str, Any]:
     """Revise the session's plan for `user_request`. Returns the same shape as a new plan's result, with a
-    "revision" block (what changed, what stayed, who chose). The session's plan is replaced only on success."""
+    "revision" block (what changed, what stayed, who chose). The session's plan is replaced only on success.
+
+    `interpretation`: structured operations built by the caller (app/whatif.py) instead of reading the request's
+    words. `commit=False` previews: the session's plan is left as it is, and the new plan state is returned as
+    "_plan_state" for the caller to keep until the traveller applies it (app/whatif.py apply_proposal)."""
     from app import orchestrator as o
     from app.coverage import assess_coverage, assess_density, density_summary
     from app.mcp_lookup_adapter import create_hours_lookup, create_travel_lookup, max_walk_minutes
@@ -70,7 +76,7 @@ def run_trip_revision(session: dict, user_request: str, trip_info: dict, *, base
             "version, then ask for the change again."), "stale_plan", state)
 
     started = time.perf_counter()
-    interpretation = interpret(user_request, state)
+    interpretation = interpretation or interpret(user_request, state)
     if interpretation.clarification:
         return _no_change("needs_clarification", interpretation.clarification, "clarification", state)
     if interpretation.infeasible:
@@ -88,7 +94,9 @@ def run_trip_revision(session: dict, user_request: str, trip_info: dict, *, base
     try:
         revised = apply_revision(user_request, state, interpretation, travel_lookup=travel_lookup, decide=decide)
     except RevisionInfeasible as exc:
+        record_agent_tools("revision", run.tool_calls)
         return _no_change("revision_not_feasible", str(exc), "not_feasible", state)
+    record_agent_tools("revision", run.tool_calls)
     timings = {"revision_edit_ms": round((time.perf_counter() - started) * 1000)}
 
     started = time.perf_counter()
@@ -118,8 +126,9 @@ def run_trip_revision(session: dict, user_request: str, trip_info: dict, *, base
              "previous_version": state.version}
     new_state = plan_state_from(revised.bundle, revised.budget_report, final_planner, final_model, revised.rules,
                                 history=state.history + [entry])
-    session["plan_state"] = new_state
-    session["itinerary"] = final_model.to_trip_store()
+    if commit:
+        session["plan_state"] = new_state
+        session["itinerary"] = final_model.to_trip_store()
     revision = {
         "outcome": "revised", "request": user_request, "understood": interpretation.understood,
         "changes": revised.changes, "notes": revised.notes,
@@ -137,7 +146,9 @@ def run_trip_revision(session: dict, user_request: str, trip_info: dict, *, base
     message = ("Your itinerary has been updated and it passed verification: you can approve it."
                if verified else "Your itinerary has been updated. " + verification_result.get(
                    "message", "It could not be fully verified."))
+    preview = {} if commit else {"_plan_state": new_state}
     return {
+        **preview,
         "status": "verified" if verified else "verification_required",
         "message": o._with_warning(message, notes),
         "itinerary": final_model.to_trip_store(),

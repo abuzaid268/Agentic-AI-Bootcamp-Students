@@ -44,23 +44,43 @@ class QualityIssue(BaseModel):
 FULL_DAY_TARGET = 2  # non-meal places on a full sightseeing day; up to one more when it fits
 LIGHT_DAY_TARGET = 1  # arrival and departure days of a trip of three days or more
 EXTRA_PER_DAY = 1
+# The traveller's saved activity pace sets the full-day target (balanced = the default above). Arrival and
+# departure days stay light. Still a target, never a quota: opening hours, walking limits, verified travel times,
+# the budget and the verifier's rules decide what is actually planned.
+PACE_FULL_DAY_TARGET = {"relaxed": 1, "balanced": FULL_DAY_TARGET, "packed": 3}
 
 
-def daily_targets(n_days: int) -> list[int]:
+def _full_day_target(pace: str | None) -> int:
+    return PACE_FULL_DAY_TARGET.get(pace or "balanced", FULL_DAY_TARGET)
+
+
+_NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
+
+
+def full_day_words(pace: str | None = None) -> str:
+    """How many non-meal places a full day has at this pace, in words: "two or three" for balanced."""
+    full = _full_day_target(pace)
+    return f"{_NUMBER_WORDS[full]} or {_NUMBER_WORDS[full + EXTRA_PER_DAY]}"
+
+
+def daily_targets(n_days: int, pace: str | None = None) -> list[int]:
     """The non-meal places a useful day has, per trip date: lighter first and last days on longer trips.
 
     A target, never a quota: a day with fewer feasible places stays lighter, and nothing is added to reach it.
+    `pace` (relaxed | balanced | packed, None = balanced) scales the full days.
     """
     if n_days <= 0:
         return []
+    full = _full_day_target(pace)
+    light = min(LIGHT_DAY_TARGET, full)
     if n_days <= 2:
-        return [FULL_DAY_TARGET] * n_days
-    return [LIGHT_DAY_TARGET] + [FULL_DAY_TARGET] * (n_days - 2) + [LIGHT_DAY_TARGET]
+        return [full] * n_days
+    return [light] + [full] * (n_days - 2) + [light]
 
 
-def target_range(n_days: int) -> tuple[int, int]:
+def target_range(n_days: int, pace: str | None = None) -> tuple[int, int]:
     """(min, max) non-meal places for the whole trip: the daily targets, and one more per day at most."""
-    low = sum(daily_targets(n_days))
+    low = sum(daily_targets(n_days, pace))
     return low, low + EXTRA_PER_DAY * max(n_days, 0)
 
 

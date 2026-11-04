@@ -25,7 +25,7 @@ def destination_search_status(request: Request):
 @router.get("")
 def search_destinations(
     request: Request,
-    q: str = Query("", max_length=200, description="The beginning of a city name, at least 2 letters"),
+    q: str = Query("", max_length=200, description="The start of a city name (1-2 letters: popular places)"),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     lang: str = Query("en", min_length=2, max_length=2, description="Language of the names (ISO 639-1)"),
 ):

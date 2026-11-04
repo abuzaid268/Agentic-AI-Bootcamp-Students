@@ -76,6 +76,71 @@ def normalize_query(raw: Any) -> str:
     return text
 
 
+def normalize_country(raw: Any) -> str | None:
+    """An optional ISO 3166-1 alpha-2 country filter ("jo" -> "JO"), or None. Raises AirportError(422) if malformed."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    text = raw.strip().upper() if isinstance(raw, str) else ""
+    if not re.fullmatch(r"[A-Z]{2}", text):
+        raise AirportError(422, "invalid_country", "The country must be a 2-letter code, such as JO.")
+    return text
+
+
+# ------------------------------------------------------------------ nearby airports (GET /api/airports/near)
+# Only airports a traveller can fly from are offered: an IATA code (flight search needs one), coordinates, and
+# OurAirports' scheduled-service flag. That flag is data, not a promise that an airline flies there today or that a
+# route exists: nothing here says which routes are served.
+NEAR_DEFAULT_KM = 150  # how far from the place an airport in the place's own country is still listed
+NEAR_MAX_KM = 500
+NEAR_OTHER_COUNTRY_KM = 80  # an airport across a border is listed only this close, and always marked as such
+NEAR_DEFAULT_LIMIT = 6
+NEAR_MAX_LIMIT = 10
+# "Exactly one clearly valid candidate": the only airport within these distances of the place, in its own country,
+# and close enough to be that city's airport. Anything else is left to the traveller.
+SOLE_CANDIDATE_KM = 60  # how close the one airport must be
+SOLE_WINDOW_KM = 100  # ...and no other airport in the same country within this distance
+RANKING_NOTE = ("Ranked by straight-line distance only. The nearest airport is not always the best one for your "
+                "route: check which airports have the flights you need.")
+
+
+def normalize_coordinates(lat: Any, lon: Any) -> tuple[float, float]:
+    """A latitude and longitude as numbers in range, or AirportError(422). Booleans, NaN, infinity and text that is
+    not a plain number are refused, never coerced."""
+    if lat is None or lon is None or (isinstance(lat, str) and not lat.strip()) or (isinstance(lon, str) and not lon.strip()):
+        raise AirportError(422, "missing_coordinates", "Give the place's latitude and longitude.")
+    values = []
+    for raw, bound, name in ((lat, 90.0, "latitude"), (lon, 180.0, "longitude")):
+        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+            raise AirportError(422, "invalid_coordinates", f"The {name} must be a number.")
+        try:
+            number = float(raw.strip() if isinstance(raw, str) else raw)
+        except ValueError:
+            raise AirportError(422, "invalid_coordinates", f"The {name} must be a number.") from None
+        if not math.isfinite(number) or abs(number) > bound:
+            raise AirportError(422, "invalid_coordinates", f"The {name} must be between -{bound:g} and {bound:g}.")
+        values.append(number)
+    return values[0], values[1]
+
+
+def _bounded_number(raw: Any, default: float, low: float, high: float, code: str, what: str) -> float:
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return default
+    try:
+        number = float(raw.strip() if isinstance(raw, str) else raw)
+    except (TypeError, ValueError):
+        number = math.nan
+    if isinstance(raw, bool) or not math.isfinite(number) or not low <= number <= high:
+        raise AirportError(422, code, f"{what} must be a number from {low:g} to {high:g}.")
+    return number
+
+
+def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in kilometres (haversine)."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 6371.0088 * 2 * math.asin(min(1.0, math.sqrt(a)))
+
+
 def _fold(text: str) -> str:
     """Case- and accent-insensitive form, to compare names ("Zürich" == "zurich")."""
     return "".join(c for c in unicodedata.normalize("NFKD", text.casefold()) if not unicodedata.combining(c))
@@ -294,13 +359,79 @@ class AirportSearch:
         lists = sorted((self._by_prefix.get(t[:2], []) for t in long_tokens), key=len)
         return lists[0]
 
-    def search(self, raw_query: Any, *, limit: int = DEFAULT_LIMIT, scheduled_only: bool = False) -> dict:
+    def countries(self) -> dict:
+        """The countries that have an airport in the bundled data, by name: for a departure country picker."""
+        entries = self._load()
+        found: dict[str, dict] = {}
+        for entry in entries:
+            code, name = entry.airport["country_code"], entry.airport["country"]
+            if code and name:
+                item = found.setdefault(code, {"code": code, "name": name, "airports": 0})
+                item["airports"] += 1
+        countries = sorted(found.values(), key=lambda c: (_fold(c["name"]), c["code"]))
+        return {"count": len(countries), "countries": countries, "source": dict(self._source)}
+
+    def nearest(self, lat: Any, lon: Any, *, country: Any = None, max_km: Any = None, limit: Any = None) -> dict:
+        """The airports near a place (its coordinates and, when known, its ISO country code), nearest first.
+
+        Never mixes countries up: with a `country`, airports in that country are listed up to `max_km` away and
+        airports across a border only when within NEAR_OTHER_COUNTRY_KM, each marked `in_country`. Without one,
+        `in_country` is null and nothing is suggested. `suggested` is the id of the one airport that can be
+        preselected, or null: see SOLE_CANDIDATE_KM. An empty list is an honest answer (no airport with scheduled
+        service within reach), never filled in with farther or same-named airports.
+        """
+        latitude, longitude = normalize_coordinates(lat, lon)
+        code = normalize_country(country)
+        reach = _bounded_number(max_km, NEAR_DEFAULT_KM, 1, NEAR_MAX_KM, "invalid_distance", "The distance")
+        count = int(_bounded_number(limit, NEAR_DEFAULT_LIMIT, 1, NEAR_MAX_LIMIT, "invalid_limit", "The limit"))
+        entries = self._load()
+        country_name = None
+        if code:
+            country_name = next((e.airport["country"] for e in entries if e.airport["country_code"] == code), None)
+            if country_name is None:
+                raise AirportError(422, "unknown_country", f"No airports are listed for the country code {code}.")
+        across = min(reach, NEAR_OTHER_COUNTRY_KM)
+        scan = max(reach, SOLE_WINDOW_KM)  # the suggestion never depends on how far the caller asked to look
+        nearby = []
+        for entry in entries:
+            airport = entry.airport
+            if not (airport["iata"] and airport["scheduled_service"] and airport["latitude"] is not None):
+                continue
+            km = distance_km(latitude, longitude, airport["latitude"], airport["longitude"])
+            if km <= scan:
+                inside = None if code is None else airport["country_code"] == code
+                nearby.append((round(km, 1), airport["iata"], airport["id"], airport, inside))
+        nearby.sort(key=lambda item: (item[0], item[1], item[2]))
+        shown = [item for item in nearby if item[0] <= (across if item[4] is False else reach)]
+        airports = [{**airport, "distance_km": km, "in_country": inside}
+                    for km, _, _, airport, inside in shown[:count]]
+        suggested = None
+        if code:
+            same = [item for item in nearby if item[4] and item[0] <= SOLE_WINDOW_KM]
+            across_near = [item for item in nearby if item[4] is False and item[0] <= NEAR_OTHER_COUNTRY_KM]
+            if len(same) == 1 and not across_near and same[0][0] <= SOLE_CANDIDATE_KM:
+                suggested = same[0][3]["id"]
+        return {
+            "point": {"latitude": latitude, "longitude": longitude},
+            "country": {"code": code, "name": country_name} if code else None,
+            "max_km": reach,
+            "other_country_km": across if code else None,
+            "count": len(airports),
+            "airports": airports,
+            "suggested": suggested,
+            "note": RANKING_NOTE,
+            "source": dict(self._source),
+        }
+
+    def search(self, raw_query: Any, *, limit: int = DEFAULT_LIMIT, scheduled_only: bool = False,
+               country: Any = None) -> dict:
         query = normalize_query(raw_query)
+        country = normalize_country(country)
         limit = max(1, min(MAX_LIMIT, int(limit)))
         entries = self._load()
         tokens = _words(query)
         folded = " ".join(tokens)
-        key = (folded, limit, bool(scheduled_only))
+        key = (folded, limit, bool(scheduled_only), country)
         with self._lock:
             found = self._cache.get(key)
             if found is not None:
@@ -310,6 +441,8 @@ class AirportSearch:
             for index in self._candidates(tokens, len(entries)):
                 entry = entries[index]
                 if scheduled_only and not entry.airport["scheduled_service"]:
+                    continue
+                if country and entry.airport["country_code"] != country:
                     continue
                 score = _score(entry, folded, tokens) if tokens else None
                 if score is not None:

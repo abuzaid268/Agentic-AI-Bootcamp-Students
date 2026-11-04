@@ -5,8 +5,11 @@ const MAX_CHANGES_SHOWN = 12
 // Why the "Ask for a change" box cannot change this trip, or null when it can. A change is applied by the
 // backend to the plan it keeps for this session (app/revision.py), named by plan_version: without one there
 // is nothing the backend could revise, and an approved trip is already saved as it is.
-export function revisionBlockedReason(result, { sample = false, approved = false } = {}) {
+export function revisionBlockedReason(result, { sample = false, approved = false, saved = false } = {}) {
   if (sample) return 'Sample mode: the assistant is not connected. Plan a trip to ask for changes.'
+  if (saved || ['saved_limited', 'saved_draft'].includes(result?.status)) { // accepted with its limitations
+    return 'This trip is saved in My Trips as it is. To change it, plan the trip again from the home page.'
+  }
   if (approved || result?.status === 'approved') {
     return 'This trip is approved and saved as it is. To change it, plan the trip again from the home page.'
   }

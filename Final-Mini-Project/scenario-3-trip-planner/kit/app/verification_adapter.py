@@ -4,9 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.contract import record_agent_tools
 from planning.research import ResearchBundle
+from researcher.mcp_client import stage
+from planning.verification import DEFAULT_MAX_LOOKUPS
 from planning.verifier_agent import VerifierAgentError, python_explanation, run_verifier_agent
 from planning.revision_agent import run_targeted_revision
+
+
+LOOKUPS_PER_DAY = 8  # a day's places (opening hours) and the legs between them, with room to spare
+
+
+def lookup_budget(itinerary: Any) -> int:
+    """How many fresh lookups the verifier may make: its default (60, enough for about a week), or 8 per day for a
+    longer trip. A long trip is checked as thoroughly as a short one: past the budget, a fact would be left
+    unchecked (UNKNOWN, never assumed), so the budget grows with the trip instead."""
+    days = len(getattr(itinerary, "days", None) or [])
+    return max(DEFAULT_MAX_LOOKUPS, LOOKUPS_PER_DAY * days)
 
 
 def run_verification_pipeline(
@@ -30,20 +44,25 @@ def run_verification_pipeline(
         }
 
     try:
-        verifier_report = run_verifier_agent(
-            itinerary=itinerary,
-            research_bundle=research_bundle,
-            llm=llm,
-            budget_report=budget_report,
-            planner_report=planner_report,
-            hours_lookup=hours_lookup,
-            travel_lookup=travel_lookup,
-        )
+        with stage("verifier"):
+            verifier_report = run_verifier_agent(
+                itinerary=itinerary,
+                research_bundle=research_bundle,
+                llm=llm,
+                budget_report=budget_report,
+                planner_report=planner_report,
+                hours_lookup=hours_lookup,
+                travel_lookup=travel_lookup,
+                # only a long trip needs more than the verifier's own default
+                **({"max_lookups": lookup_budget(itinerary)}
+                   if lookup_budget(itinerary) > DEFAULT_MAX_LOOKUPS else {}),
+            )
     except VerifierAgentError as error:
         # The verdict is Python's and survives an LLM failure: only the agent's
         # ranking and wording are replaced by Python's (decided_by "python").
         print("Verifier agent failed; Python's ranking is used:", error.rejections)
         verifier_report = python_explanation(error)
+    record_agent_tools("verifier", getattr(verifier_report, "agent_tool_calls", None))
 
     if verifier_report.verified:
         return {
@@ -65,16 +84,18 @@ def run_verification_pipeline(
             "revision_report": None,
         }
 
-    revision_report = run_targeted_revision(
-        itinerary=itinerary,
-        bundle=research_bundle,
-        budget_report=budget_report,
-        llm=llm,
-        verification=verifier_report.verification,
-        planner_report=planner_report,
-        travel_lookup=travel_lookup,
-        hours_lookup=hours_lookup,
-    )
+    with stage("revision"):
+        revision_report = run_targeted_revision(
+            itinerary=itinerary,
+            bundle=research_bundle,
+            budget_report=budget_report,
+            llm=llm,
+            verification=verifier_report.verification,
+            planner_report=planner_report,
+            travel_lookup=travel_lookup,
+            hours_lookup=hours_lookup,
+        )
+    record_agent_tools("revision", getattr(revision_report, "agent_tool_calls", None))
 
     result = revision_report.result
 

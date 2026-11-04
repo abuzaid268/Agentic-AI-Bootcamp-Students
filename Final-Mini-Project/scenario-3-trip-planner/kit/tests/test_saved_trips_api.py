@@ -26,7 +26,8 @@ def test_without_a_configured_traveller_nothing_is_saved_and_the_reason_is_actio
     make_pending_trip()
     with patch.dict("os.environ", {"TRAVEL_TRAVELLER_ID": ""}), patch("app.main.save_trip_to_store") as save:
         r = approve()
-    assert r.status_code == 503 and "TRAVEL_TRAVELLER_ID" in r.json()["detail"]
+    assert r.status_code == 200 and r.json()["status"] == "save_failed" and r.json()["result"] is None
+    assert "TRAVEL_TRAVELLER_ID" in r.json()["reply"]
     save.assert_not_called()
     assert sessions["test-session"]["pending_action"] is not None  # retry possible once configured
 
@@ -37,15 +38,16 @@ def test_a_failed_save_is_never_reported_as_approved_and_can_be_retried():
                                                side_effect=[TripStoreError("down"), {"trip_id": "TRIP-7"}]):
         first = approve()
         second = approve()
-    assert first.status_code == 503 and first.json()["detail"] == "Trip could not be saved. Please try again."
-    assert second.status_code == 200 and second.json()["trip"]["trip_id"] == "TRIP-7"
+    assert first.json()["status"] == "save_failed" and first.json()["result"] is None
+    assert "TRIP-" not in first.json()["reply"]
+    assert second.json()["status"] == "approved" and second.json()["result"] == {"trip_id": "TRIP-7"}
 
 
 def test_an_unverified_result_has_no_action_to_approve():
     sessions["test-session"] = {"pending_action": None}
     with patch.dict("os.environ", ENV), patch("app.main.save_trip_to_store") as save:
         r = approve()
-    assert r.status_code == 404
+    assert r.json()["status"] == "no_pending_action" and r.json()["result"] is None
     save.assert_not_called()
 
 
