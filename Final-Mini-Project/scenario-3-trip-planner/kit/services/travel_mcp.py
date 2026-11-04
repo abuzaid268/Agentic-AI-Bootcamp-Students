@@ -29,6 +29,13 @@ mcp = FastMCP(
                  "instructions. save_trip is a write: call it only from approval code after the traveller approved.")
 
 
+# How long a tool waits for the travel API. A live city's first fetch (its page and up to 24 district pages, at the
+# upstreams' polite rate) takes 10-25 s; the travel API stops its own upstream calls at 40 s (55 s at worst,
+# services/travel_data.py REQUEST_BUDGET_S), and the MCP client gives a whole tool call 90 s
+# (researcher/mcp_client.py CALL_TIMEOUT).
+TRAVEL_API_TIMEOUT_S = 60.0
+
+
 def api_url() -> str:
     return (os.getenv("TRAVEL_API_URL") or "http://localhost:8103").rstrip("/")
 
@@ -38,10 +45,11 @@ async def call(method: str, path: str, params: dict | None = None, body: Any = N
     h = {"X-API-Key": os.getenv("TRAVEL_API_KEY") or "dev-key-change-me", **(headers or {})}
     params = {k: v for k, v in (params or {}).items() if v is not None}
     try:
-        async with httpx.AsyncClient(base_url=api_url(), timeout=30) as client:
+        async with httpx.AsyncClient(base_url=api_url(), timeout=TRAVEL_API_TIMEOUT_S) as client:
             r = await client.request(method, path, params=params, json=body, headers=h)
     except httpx.TimeoutException:
-        return {"ok": False, "error": {"code": "timeout", "message": "The travel API did not answer in 30 s.", "status": None}}
+        return {"ok": False, "error": {"code": "timeout", "status": None,
+                                       "message": f"The travel API did not answer in {TRAVEL_API_TIMEOUT_S:g} s."}}
     except httpx.HTTPError as exc:
         return {"ok": False, "error": {"code": "unreachable", "status": None,
                                        "message": f"The travel API at {api_url()} is not reachable ({type(exc).__name__})."}}

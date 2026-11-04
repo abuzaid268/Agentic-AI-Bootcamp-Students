@@ -15,8 +15,11 @@ TRAVEL_MODE
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import datetime as dt
 import json
+import math
 import os
 import re
 import threading
@@ -37,6 +40,7 @@ OSM_LICENCE = "Data (c) OpenStreetMap contributors, ODbL (https://www.openstreet
 METEO_LICENCE = "Weather data by Open-Meteo.com, CC BY 4.0"
 FX_LICENCE = "Euro foreign exchange reference rates of the European Central Bank, via Frankfurter"
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
+GEOCODING = "https://geocoding-api.open-meteo.com/v1/search"  # GeoNames places, CC BY 4.0
 FORECAST = "https://api.open-meteo.com/v1/forecast"
 ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 FX_URL = "https://api.frankfurter.dev/v1/latest"
@@ -44,7 +48,8 @@ ROUTERS = {"foot": "https://routing.openstreetmap.de/routed-foot", "driving": "h
 JOD_PER_USD = 0.709  # Central Bank of Jordan fixed peg, used only because the ECB does not publish JOD
 JOD_PEG_SOURCE = "https://www.cbj.gov.jo/"
 FORECAST_DAYS = 16
-MIN_INTERVAL = {"nominatim.openstreetmap.org": 1.1, "routing.openstreetmap.de": 1.0, "en.wikivoyage.org": 0.5}
+MIN_INTERVAL = {"nominatim.openstreetmap.org": 1.1, "routing.openstreetmap.de": 1.0, "en.wikivoyage.org": 0.5,
+                "geocoding-api.open-meteo.com": 0.2}
 MEM_TTL_S = 3 * 3600
 MAX_DISTRICTS = 24  # district pages per city (Paris has 21); each is one rate-limited, cached request
 MAX_DISTRICT_DEPTH = 2  # districts of districts, for hierarchical cities
@@ -168,19 +173,114 @@ def user_agent() -> str:
     return f"RihlaTripPlannerKit/1.0 (Agentic AI Bootcamp teaching kit; low-volume cached use; contact: {contact})"
 
 
+# Transient upstream failures are tried again, a bounded number of times: a connection that was refused, dropped or
+# not made in time (the request was never sent, so trying again is safe), a rate limit (429, waiting as long as
+# Retry-After says, at most MAX_RETRY_WAIT_S) or a server error (500/502/503/504). A read timeout is not retried: the
+# upstream got the request and is slow. Anything else is the answer.
+#
+# Time limits, so that no request can hang (the MCP tool waits TRAVEL_API_TIMEOUT_S = 60 s, services/travel_mcp.py):
+#   one attempt      at most CONNECT_TIMEOUT_S to connect and READ_TIMEOUT_S per read, never more than is left
+#   one upstream     HTTP_CALL_DEADLINE_S for all its attempts and waits (the polite interval included)
+#   one API request  REQUEST_BUDGET_S for all the upstream calls it makes (a city and its district pages), set by
+#                    services/travel_api.py; once spent, further calls fail at once (DeadlineExceeded)
+# A response that is still arriving when its deadline passes is dropped at the next chunk, so the worst case for a
+# whole API request is REQUEST_BUDGET_S + READ_TIMEOUT_S (55 s), under the MCP tool's 60 s.
+MAX_ATTEMPTS = 3
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+RETRY_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError)
+MAX_RETRY_WAIT_S = 5.0
+CONNECT_TIMEOUT_S = 8.0
+READ_TIMEOUT_S = 15.0
+HTTP_CALL_DEADLINE_S = 20.0
+REQUEST_BUDGET_S = 40.0
+MIN_ATTEMPT_S = 1.0  # an attempt is started only with at least this much time left
+
+_request_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar("travel_request_deadline",
+                                                                                  default=None)
+
+
+class DeadlineExceeded(httpx.TimeoutException):
+    """The upstream call's deadline, or the API request's budget, ran out: no further attempt is made."""
+
+
+@contextlib.contextmanager
+def request_budget(seconds: float | None = None):
+    """Every upstream call made inside this block (one API request) shares one deadline (REQUEST_BUDGET_S)."""
+    token = _request_deadline.set(time.monotonic() + (REQUEST_BUDGET_S if seconds is None else seconds))
+    try:
+        yield
+    finally:
+        _request_deadline.reset(token)
+
+
+def _retry_wait(attempt: int, response: httpx.Response | None = None) -> float:
+    after = (response.headers.get("Retry-After") or "").strip() if response is not None else ""
+    wait = float(after) if after.isdigit() else 0.5 * 3 ** (attempt - 1)  # 0.5 s, then 1.5 s
+    return min(wait, MAX_RETRY_WAIT_S)
+
+
+def _time_left(deadline: float, host: str) -> float:
+    left = deadline - time.monotonic()
+    if left < MIN_ATTEMPT_S:
+        raise DeadlineExceeded(f"No time left for a request to {host}.")
+    return left
+
+
+def _get_within(url: str, params: dict | None, deadline: float, host: str) -> httpx.Response:
+    """One attempt: its timeouts never exceed the time left, and a body still arriving at the deadline is dropped."""
+    left = _time_left(deadline, host)
+    timeout = httpx.Timeout(min(READ_TIMEOUT_S, left), connect=min(CONNECT_TIMEOUT_S, left))
+    with _client.stream("GET", url, params=params, timeout=timeout) as r:
+        body = bytearray()
+        for chunk in r.iter_bytes():
+            body += chunk
+            if time.monotonic() > deadline:
+                raise DeadlineExceeded(f"{host} was still sending its answer at the deadline.")
+        # The body is already decoded: drop the headers that describe the encoded transfer.
+        headers = [(k, v) for k, v in r.headers.multi_items()
+                   if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+        return httpx.Response(r.status_code, headers=headers, content=bytes(body), request=r.request)
+
+
 def http_get(url: str, params: dict | None = None) -> tuple[httpx.Response, str]:
     global _client
     if _client is None:
         _client = httpx.Client(headers={"User-Agent": user_agent(), "Accept": "application/json"},
-                               timeout=httpx.Timeout(20.0, connect=8.0), follow_redirects=True)
+                               timeout=httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S),
+                               follow_redirects=True)
     host = urlparse(url).hostname or ""
-    with _LOCK:
-        wait = _last_call.get(host, 0) + MIN_INTERVAL.get(host, 0.2) - time.time()
-        if wait > 0:
-            time.sleep(wait)
-        _last_call[host] = time.time()
-    r = _client.get(url, params=params)
-    return r, str(r.url)
+    deadline = time.monotonic() + HTTP_CALL_DEADLINE_S
+    request_deadline = _request_deadline.get()
+    if request_deadline is not None:
+        deadline = min(deadline, request_deadline)
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        # every attempt keeps the host's polite interval; waiting for the turn counts against the deadline
+        if not _LOCK.acquire(timeout=_time_left(deadline, host)):
+            raise DeadlineExceeded(f"No turn for a request to {host} before the deadline.")
+        try:
+            wait = _last_call.get(host, 0) + MIN_INTERVAL.get(host, 0.2) - time.time()
+            if wait > 0:
+                if wait > deadline - time.monotonic() - MIN_ATTEMPT_S:
+                    raise DeadlineExceeded(f"No time left for a request to {host}.")
+                time.sleep(wait)
+            _last_call[host] = time.time()
+        finally:
+            _LOCK.release()
+        try:
+            r = _get_within(url, params, deadline, host)
+        except RETRY_ERRORS:
+            pause = _retry_wait(attempt)
+            if attempt == MAX_ATTEMPTS or deadline - time.monotonic() - pause < MIN_ATTEMPT_S:
+                raise
+            time.sleep(pause)
+            continue
+        if r.status_code in RETRY_STATUSES and attempt < MAX_ATTEMPTS:
+            pause = _retry_wait(attempt, r)
+            if deadline - time.monotonic() - pause >= MIN_ATTEMPT_S:
+                time.sleep(pause)
+                continue
+        return r, str(r.url)
+    raise RuntimeError("unreachable")  # the loop always returns or raises
 
 
 # ------------------------------------------------------------------ Wikivoyage listings
@@ -448,12 +548,119 @@ def wv_page(title: str) -> tuple[dict, str]:
     return cached("wikivoyage", slug(title), fetch, f"Wikivoyage page '{title}'")
 
 
-def city_title(city: str) -> str:
-    name = (city or "").split(",")[0].strip()
-    if not name:
+# A city name can carry what makes it unique: "Paris, Texas, United States" (a destination box's label), not
+# "Paris". The region and country are never dropped: they fix the place's coordinates, and only a Wikivoyage page
+# about a place at those coordinates is used. A namesake elsewhere ("Italy" the country for "Italy, Texas", Paris
+# in France for "Paris, Texas") is never used instead: no page means no listings, said so.
+GUIDE_MAX_KM = 40  # a city's Wikivoyage coordinates and its GeoNames point are a few km apart; namesakes are not
+GEOSEARCH_RADIUS_M = 10000  # the most Wikivoyage's geosearch allows
+
+
+def split_city(city: str) -> tuple[str, list[str]]:
+    """("Paris", ["Texas", "United States"]) from "Paris, Texas, United States"."""
+    parts = [part.strip() for part in (city or "").split(",") if part.strip()]
+    if not parts:
         raise DataError(422, "missing_city", "Give a city, e.g. city=Istanbul.")
+    return parts[0], parts[1:]
+
+
+def city_title(city: str) -> str:
+    name, qualifiers = split_city(city)
     known = {fold(c["name"]): c["name"] for c in manifest().get("cities", [])}
-    return known.get(fold(name), name[:1].upper() + name[1:])
+    if not qualifiers:  # a bare name, as before: the recorded city, else the page of that name
+        return known.get(fold(name), name[:1].upper() + name[1:])
+    if mode() == "replay":
+        recorded = cache_read("wikivoyage_title", slug(city))
+        if recorded:
+            return recorded["title"]
+        title = known.get(fold(name))
+        if title and _recorded_city_in(title, qualifiers):
+            return title
+        raise not_cached(f"Travel data for {city}")
+    return resolve_city_title(city)
+
+
+def _recorded_city_in(title: str, qualifiers: list[str]) -> bool:
+    """Whether the recorded city lies in a region or country the name gives, by its recorded address (whole names
+    only): "Amman, Jordan" is the recorded Amman; "Amman, Texas" is not."""
+    record = cache_read("geocode", slug(title)) or {}
+    areas = {fold(part) for part in (record.get("display_name") or "").split(",")[1:] if part.strip()}
+    areas |= {fold(record.get("country") or ""), fold(record.get("country_code") or "")} - {""}
+    return any(fold(q) in areas for q in qualifiers)
+
+
+def km_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    rad = math.radians
+    a = (math.sin(rad(lat2 - lat1) / 2) ** 2
+         + math.cos(rad(lat1)) * math.cos(rad(lat2)) * math.sin(rad(lon2 - lon1) / 2) ** 2)
+    return 6371.0 * 2 * math.asin(math.sqrt(min(1.0, a)))
+
+
+def locate_city(city: str) -> dict:
+    """Where the named city is: the Open-Meteo (GeoNames) place called `name` whose region and country are the
+    ones given, compared as whole names. A destination box label comes from that same provider, so its region and
+    country match exactly. A name typed by hand ("Cusco, Peru") may name its region differently: then the one place
+    of that name in the country given is used, only when there is exactly one. {"lat", "lon", "name", "region",
+    "country"}; DataError 404 when the region and country given do not single out one place of that name."""
+    name, qualifiers = split_city(city)
+    wanted = {fold(q) for q in qualifiers}
+    r, url = http_get(GEOCODING, {"name": name, "count": 30, "language": "en", "format": "json"})
+    r.raise_for_status()
+    hits = [hit for hit in r.json().get("results") or []
+            if str(hit.get("feature_code") or "").startswith("PPL") and fold(hit.get("name") or "") == fold(name)]
+
+    def areas(hit: dict, keys=("admin1", "admin2", "country", "country_code")) -> set[str]:
+        return {fold(hit.get(k) or "") for k in keys} - {""}
+    exact = [hit for hit in hits if wanted <= areas(hit)]
+    in_country = [hit for hit in hits if areas(hit, ("country", "country_code")) & wanted]
+    # the country alone only decides when it has one place of that name: never a pick among namesakes
+    for hit in exact or (in_country if len(in_country) == 1 else []):
+        return {"lat": float(hit["latitude"]), "lon": float(hit["longitude"]), "name": hit["name"],
+                "region": hit.get("admin1"), "country": hit.get("country"), "source_url": url}
+    raise DataError(404, "place_not_found", f"No city called {name} in {', '.join(qualifiers)} was found.")
+
+
+def _guide_candidates(name: str, qualifiers: list[str], lat: float, lon: float) -> list[dict]:
+    """Wikivoyage pages that may be this city's guide, with their coordinates: Wikivoyage's own titles for a name
+    shared by several places ("Paris (Texas)", "Washington, D.C."), the plain name, its "City" form ("New York City",
+    "Mexico City"), and the pages near the point whose title is the name. Only distance decides among them."""
+    titles = [f"{name} ({q})" for q in qualifiers] + [name, f"{name} City"] + [f"{name}, {q}" for q in qualifiers]
+    r, _ = http_get(WV_API, {"action": "query", "titles": "|".join(titles), "prop": "coordinates", "redirects": 1,
+                             "format": "json", "formatversion": 2})
+    r.raise_for_status()
+    pages = [{"title": pg["title"], "lat": pg["coordinates"][0]["lat"], "lon": pg["coordinates"][0]["lon"]}
+             for pg in r.json().get("query", {}).get("pages", [])
+             if not pg.get("missing") and pg.get("coordinates")]
+    r, _ = http_get(WV_API, {"action": "query", "list": "geosearch", "gscoord": f"{lat}|{lon}",
+                             "gsradius": GEOSEARCH_RADIUS_M, "gslimit": 20, "format": "json", "formatversion": 2})
+    r.raise_for_status()
+    base = fold(name)
+    for hit in r.json().get("query", {}).get("geosearch", []):
+        title_base = fold(re.sub(r"\s*\(.*\)\s*$", "", hit["title"]).split(",")[0])
+        if title_base.replace(".", "") in (base.replace(".", ""), f"{base} city".replace(".", "")):
+            pages.append({"title": hit["title"], "lat": hit["lat"], "lon": hit["lon"]})
+    return pages
+
+
+def resolve_city_title(city: str) -> str:
+    """The Wikivoyage page about this very city (live and record modes): the candidate page nearest to the city's
+    own coordinates, within GUIDE_MAX_KM. None near it: DataError 404 no_guide, never a namesake's page."""
+    name, qualifiers = split_city(city)
+
+    def fetch() -> dict:
+        point = locate_city(city)
+        pages = _guide_candidates(name, qualifiers, point["lat"], point["lon"])
+        scored = sorted((km_between(point["lat"], point["lon"], pg["lat"], pg["lon"]), pg["title"]) for pg in pages)
+        if not scored or scored[0][0] > GUIDE_MAX_KM:
+            nearest = f" (the nearest page called {name} is {scored[0][1]}, {round(scored[0][0])} km away)" \
+                if scored else ""
+            raise DataError(404, "no_guide", f"Wikivoyage has no travel guide for {city}{nearest}. Choose a nearby "
+                            "city that has one.")
+        km, title = scored[0]
+        return {"kind": "wikivoyage_title", "query": city, "title": title, "distance_km": round(km, 1),
+                "lat": point["lat"], "lon": point["lon"], "source": "Open-Meteo (GeoNames) and Wikivoyage coordinates",
+                "retrieved_at": now_iso()}
+    return cached("wikivoyage_title", slug(city), fetch, f"Finding the Wikivoyage page for {city}")[0]["title"]
 
 
 def _district_pages(page: dict) -> list[dict]:
@@ -1080,8 +1287,14 @@ def travel_today() -> dt.date:
 
 
 def city_point(city: str) -> dict:
-    rec, _ = geocode(city_title(city))
-    return {"name": city_title(city), "lat": round(rec["lat"], 4), "lon": round(rec["lon"], 4)}
+    title = city_title(city)
+    # A qualified name ("Paris, Texas, United States") was located when its page was chosen: use that point, not a
+    # geocoding of the page title (which Nominatim may place elsewhere, or not at all).
+    resolved = cache_read("wikivoyage_title", slug(city)) or (_MEM.get(("wikivoyage_title", slug(city))) or (0, {}))[1]
+    if split_city(city)[1] and resolved.get("lat") is not None:
+        return {"name": title, "lat": round(resolved["lat"], 4), "lon": round(resolved["lon"], 4)}
+    rec, _ = geocode(title)
+    return {"name": title, "lat": round(rec["lat"], 4), "lon": round(rec["lon"], 4)}
 
 
 def forecast(city: str) -> tuple[dict, str]:
