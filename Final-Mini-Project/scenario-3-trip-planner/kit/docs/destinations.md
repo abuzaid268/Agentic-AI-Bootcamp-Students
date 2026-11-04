@@ -22,6 +22,22 @@ needs no key, and is made for search as you type:
 - two characters match exactly;
 - one character returns nothing.
 
+**One or two letters: popular destinations.** The provider alone cannot suggest "Amman" for "Am", and it returns
+nothing for "A". So a query of one or two letters is answered from a bundled list, without calling the provider:
+- the list is `app/destinations/data/popular_destinations.json`, 224 popular destinations;
+- each record is the provider's own GeoNames record, so it has the same id, coordinates and label as in the
+  worldwide search;
+- results are places whose name starts with the query, then places with a later word that does ("Yo" gives
+  Yogyakarta, then New York), largest population first, ignoring case and accents;
+- the answer says `"scope": "popular"`, and the box shows "Keep typing to search every city";
+- three letters or more always use the worldwide search (`"scope": "worldwide"`), as before;
+- the licence gate below still comes first: in production without a decision, short queries answer 503 too.
+
+The list is rebuilt by hand with `python -m app.destinations.build_popular`:
+- it names destinations only (city name and country code) and keeps the provider's own record;
+- it leaves out any name the provider does not confirm, or that matches only a village (under 5,000 people);
+- it makes about 230 free provider calls, so run it in development.
+
 Every result has a stable GeoNames id, coordinates, country, region, population and time zone. Licence: CC BY 4.0.
 The component shows the attribution ("City data: GeoNames (CC BY 4.0) via Open-Meteo") and every API answer carries
 `source`.
@@ -104,7 +120,7 @@ Errors: `{"error": {"code", "message", "retryable", "retry_after"?}}`
 | Status | `code` | When |
 |---|---|---|
 | 503 | `destinations_unavailable` | Production without the Open-Meteo licence decision (see above). Checked before anything else, and not retryable. |
-| 422 | `missing_query`, `query_too_short`, `invalid_query`, `query_too_long` | empty, 1 character, no letters or control characters, over 80 characters; the provider is not called |
+| 422 | `missing_query`, `invalid_query`, `query_too_long` | empty, no letters or control characters, over 80 characters; the provider is not called. One or two letters are answered from the popular list (above), not refused. |
 | 422 | FastAPI validation | `limit` outside 1–10, `lang` not 2 letters |
 | 429 | `rate_limited` | this server's provider-call cap was reached (header `Retry-After`) |
 | 503 | `provider_rate_limited` | the provider answered 429 (`Retry-After` passed on) |

@@ -12,6 +12,9 @@ const ICONS = { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudS
 const isCoordinate = (value, bound) => value !== null && value !== undefined && value !== ''
   && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= bound
 
+// Answers that mean "no forecast here", not a failure: shown as a calm note, not an alert.
+const QUIET_ERRORS = ['beyond_forecast_horizon', 'weather_unavailable', 'not_available']
+
 function Unavailable({ children }) {
   return <p role="status" className="rounded-2xl bg-[#f1f7f8] p-4 text-sm text-[#456774]">{children}</p>
 }
@@ -81,7 +84,10 @@ export default function WeatherSummary({
         {error && error.code === 'weather_unavailable' && (
           <Unavailable>Weather forecasts are not available on this service right now.</Unavailable>
         )}
-        {error && !['beyond_forecast_horizon', 'weather_unavailable'].includes(error.code) && (
+        {error && error.code === 'not_available' && (
+          <Unavailable>Weather is not connected on this server yet. The rest of your trip is not affected.</Unavailable>
+        )}
+        {error && !QUIET_ERRORS.includes(error.code) && (
           <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
             {error.message}
             {error.retryable && (

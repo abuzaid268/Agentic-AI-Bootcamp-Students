@@ -269,6 +269,20 @@ import { FlightSearch } from './features/flights'
 <FlightSearch />
 ```
 
+**Optional starting values from a trip.** These props only fill the form when it first appears; what the
+traveller changes afterwards is kept. Remount with a new `key` for another trip (`TripTravelInfo` does this, see
+`docs/frontend-integration.md`). A hint is text typed into an airport box, which then lists matching airports.
+No airport is chosen for the traveller.
+
+```jsx
+<FlightSearch departureHint="London" departureCountry="GB" arrivalHint="Amman"
+  departureDate="2026-12-01" returnDate="2026-12-08" adults={2} title="Flights for this trip" />
+```
+
+- `departureCountry` that the countries list does not contain is dropped, not kept as a hidden filter.
+- A party of more than 9 starts at 9 adults, and the form says so.
+- A start date without a return date starts a one-way search.
+
 **The form:**
 - An optional **Departure country** picker (from `GET /api/airports/countries`). Choosing a country empties the
   "From" box and limits it to that country's airports; "Any country" searches worldwide. Without the countries
@@ -310,6 +324,10 @@ import { FlightSearch } from './features/flights'
 ## Handoffs (not done here: these files belong to other members)
 
 ### Member 1 (backend owner): install the route
+
+**Done on `main` (`a26c63e`, 2026-11-04):** `app/main.py` calls `install_flights(app)` and `install_airports(app)`.
+The rest of this section is kept for reference. The weather route is still to do: see
+`docs/frontend-integration.md`.
 
 Add two lines to `app/main.py`, after `app = FastAPI(...)`, using the same pattern as `install_auth`, `install_destinations` and `install_airports`:
 

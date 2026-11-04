@@ -43,6 +43,30 @@ export function validateFlightForm({ origin, destination, departureDate, returnD
   return errors
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+const hintText = (value) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 100) : '')
+
+// FlightSearch's starting values from optional props (a parent's trip), cleaned: anything unusable is left empty
+// for the traveller to fill in, never guessed. Hints are only text for the airport boxes, never a chosen airport.
+export function initialFlightForm({ departureHint, departureCountry, arrivalHint, departureDate, returnDate, adults } = {}) {
+  const depart = typeof departureDate === 'string' && ISO_DATE.test(departureDate) ? departureDate : ''
+  const back = typeof returnDate === 'string' && ISO_DATE.test(returnDate) && (!depart || returnDate >= depart)
+    ? returnDate : ''
+  const count = Number(adults)
+  const wanted = Number.isInteger(count) && count >= 1 ? count : 1
+  const country = typeof departureCountry === 'string' ? departureCountry.trim() : ''
+  return {
+    departureHint: hintText(departureHint),
+    departureCountry: /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : '',
+    arrivalHint: hintText(arrivalHint),
+    departureDate: depart,
+    returnDate: back,
+    roundTrip: !depart || Boolean(back), // a trip with a start date but no return date is searched one way
+    adults: Math.min(wanted, MAX_ADULTS),
+    adultsCapped: wanted > MAX_ADULTS,
+  }
+}
+
 // What a search asks for. Offers (or an error) on screen belong to the key they were searched with: once the
 // form no longer matches it, they are hidden instead of being shown as if they answered the new search.
 export function searchKey({ origin, destination, departureDate, returnDate, roundTrip, adults, cabinClass }) {

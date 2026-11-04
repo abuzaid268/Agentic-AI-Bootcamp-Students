@@ -62,6 +62,7 @@ export default function DestinationSearch({
   const [selected, setSelected] = useState(null)
   const [results, setResults] = useState([])
   const [ambiguous, setAmbiguous] = useState(false)
+  const [scope, setScope] = useState('worldwide') // 'popular' for one or two letters (the server's popular list)
   const [status, setStatus] = useState('idle') // idle | loading | ready | error
   const [error, setError] = useState('')
   const [open, setOpen] = useState(false)
@@ -80,6 +81,7 @@ export default function DestinationSearch({
         const answer = await searchDestinations(text, { signal: controller.signal, limit, fetchImpl })
         setResults(answer.results)
         setAmbiguous(answer.ambiguous)
+        setScope(answer.scope)
         setHighlight(answer.results.length ? 0 : -1)
         setStatus('ready')
       } catch (err) {
@@ -157,7 +159,7 @@ export default function DestinationSearch({
     }
   }
 
-  const message = statusMessage({ status, count: results.length, error, ambiguous, searchable })
+  const message = statusMessage({ status, count: results.length, error, ambiguous, searchable, scope })
   const optionId = (index) => `${listId}-${index}`
 
   return (

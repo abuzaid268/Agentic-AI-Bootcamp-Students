@@ -171,7 +171,7 @@ import { WeatherSummary } from './features/weather'
 **The rest of the component:**
 - A "Live forecast" or "Forecast" badge.
 - The update time (UTC), the place's time zone and the Open-Meteo attribution link.
-- Clear states for: no place chosen; loading; a date too far ahead ("forecasts reach only 16 days ahead"); unavailable on this service; an error with "Try again".
+- Clear states for: no place chosen; loading; a date too far ahead ("forecasts reach only 16 days ahead"); unavailable on this service; a server without the weather route (404: "Weather is not connected on this server yet", a quiet note, not an alert); an error with "Try again".
 
 **Accessibility:**
 - A `section` named by its heading, with `aria-busy` and a polite live region.
@@ -202,6 +202,10 @@ install_weather(app)
 **For WHAT IF rain:** `app/whatif.py`, on `main` since PR #15, reads the kit's `get_weather` by city. This service can supply the same rain information by coordinates, with no replay cache, through `app/whatif_support/weather_adapter.py`. See `docs/whatif.md`.
 
 ### Member 2 (frontend owner): show the forecast
+
+The simplest way is `TripTravelInfo` (`features/trip-travel`). It shows the forecast for the chosen destination and
+only asks for the trip days that have one: a trip that runs past 16 days is cut to the days with a forecast, and a
+trip that starts later shows "No forecast yet". See `docs/frontend-integration.md`. To use the card alone:
 
 Render `<WeatherSummary>` where a trip's destination and dates are known, for example on the trip result, with the coordinates of the chosen destination:
 
