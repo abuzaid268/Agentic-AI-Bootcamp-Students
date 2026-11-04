@@ -1,0 +1,92 @@
+{
+ "point": {
+  "latitude": 48.85341,
+  "longitude": 2.3488
+ },
+ "country": {
+  "code": "FR",
+  "name": "France"
+ },
+ "max_km": 150,
+ "other_country_km": 80,
+ "count": 4,
+ "airports": [
+  {
+   "id": "ourairports:4189",
+   "name": "Paris-Orly Airport",
+   "city": "Paris (Orly, Val-de-Marne)",
+   "region": "Île-de-France",
+   "country": "France",
+   "country_code": "FR",
+   "iata": "ORY",
+   "icao": "LFPO",
+   "latitude": 48.7295,
+   "longitude": 2.35896,
+   "type": "large_airport",
+   "scheduled_service": true,
+   "label": "Paris-Orly Airport (ORY), Paris (Orly, Val-de-Marne), France",
+   "distance_km": 13.8,
+   "in_country": true
+  },
+  {
+   "id": "ourairports:4185",
+   "name": "Charles de Gaulle International Airport",
+   "city": "Paris (Roissy-en-France, Val-d'Oise)",
+   "region": "Île-de-France",
+   "country": "France",
+   "country_code": "FR",
+   "iata": "CDG",
+   "icao": "LFPG",
+   "latitude": 49.00896,
+   "longitude": 2.55412,
+   "type": "large_airport",
+   "scheduled_service": true,
+   "label": "Charles de Gaulle International Airport (CDG), Paris (Roissy-en-France, Val-d'Oise), France",
+   "distance_km": 22.9,
+   "in_country": true
+  },
+  {
+   "id": "ourairports:4169",
+   "name": "Beauvais-Tillé airport",
+   "city": "Beauvais",
+   "region": "Hauts-de-France",
+   "country": "France",
+   "country_code": "FR",
+   "iata": "BVA",
+   "icao": "LFOB",
+   "latitude": 49.4544,
+   "longitude": 2.11278,
+   "type": "large_airport",
+   "scheduled_service": true,
+   "label": "Beauvais-Tillé airport (BVA), Beauvais, France",
+   "distance_km": 69.0,
+   "in_country": true
+  },
+  {
+   "id": "ourairports:4176",
+   "name": "Chalons Vatry airport",
+   "city": "Chalons en Champagne",
+   "region": "Grand Est",
+   "country": "France",
+   "country_code": "FR",
+   "iata": "XCR",
+   "icao": "LFOK",
+   "latitude": 48.77333,
+   "longitude": 4.20611,
+   "type": "medium_airport",
+   "scheduled_service": true,
+   "label": "Chalons Vatry airport (XCR), Chalons en Champagne, France",
+   "distance_km": 136.3,
+   "in_country": true
+  }
+ ],
+ "suggested": null,
+ "note": "Ranked by straight-line distance only. The nearest airport is not always the best one for your route: check which airports have the flights you need.",
+ "source": {
+  "provider": "OurAirports",
+  "url": "https://ourairports.com/data/",
+  "licence": "Public domain",
+  "attribution": "Airport data from OurAirports (ourairports.com), released to the public domain.",
+  "data_date": "2026-11-02"
+ }
+}

@@ -1,6 +1,7 @@
 import { Briefcase, Clock, Plane } from 'lucide-react'
 import {
-  DATA_MODES, MODE_STYLES, baggageLabel, dayShift, formatClock, formatDuration, formatPrice, stopsLabel,
+  DATA_MODES, MODE_STYLES, baggageLabel, dayShift, formatClock, formatDuration, formatPrice, journeyMinutes, stopsLabel,
+  tripTypeLabel,
 } from './flightState.js'
 
 export function DataModeBadge({ mode }) {
@@ -50,12 +51,14 @@ function SliceRow({ slice, label, timeBasis }) {
 }
 
 /** One flight offer, read-only: there is deliberately no "book" or "pay" action. */
-export default function FlightOfferCard({ offer, cheapest = false }) {
+export default function FlightOfferCard({ offer, cheapest = false, fastest = false }) {
   const price = formatPrice(offer.totalAmount, offer.currency)
   const people = `${offer.passengers} ${offer.passengers === 1 ? 'passenger' : 'passengers'}`
+  const total = journeyMinutes(offer)
+  const mode = DATA_MODES[offer.dataMode]
   return (
     <article
-      aria-label={`${offer.airline}, ${price} total for ${people}`}
+      aria-label={`${offer.airline}, ${price} total for ${people}, ${tripTypeLabel(offer).toLowerCase()}, ${mode.price}`}
       className="rounded-3xl border border-[#d5e6e9] bg-white p-4 shadow-sm sm:p-5"
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -66,16 +69,29 @@ export default function FlightOfferCard({ offer, cheapest = false }) {
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <DataModeBadge mode={offer.dataMode} />
+            <span className="rounded-full border border-[#d5e6e9] px-2 py-0.5 text-[11px] font-semibold text-[#456774]">
+              {tripTypeLabel(offer)}
+            </span>
             {cheapest && (
               <span className="rounded-full bg-[#e5f4f4] px-2 py-0.5 text-[11px] font-semibold text-[#245c6a]">
                 Cheapest in {offer.currency}
+              </span>
+            )}
+            {fastest && (
+              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900">
+                Fastest in {offer.currency}
               </span>
             )}
           </div>
         </div>
         <div className="text-right">
           <p className="text-2xl font-bold text-[#1c3544]">{price}</p>
-          <p className="text-xs text-[#6b8791]">total for {people}</p>
+          <p className="text-xs text-[#6b8791]">
+            total for {people}{offer.slices.length > 1 ? ' · both directions' : ' · outbound only'}
+          </p>
+          <p className={`mt-1 inline-block rounded-lg border px-2 py-0.5 text-[11px] font-bold ${MODE_STYLES[offer.dataMode]}`}>
+            {mode.price}
+          </p>
         </div>
       </header>
 
@@ -94,6 +110,7 @@ export default function FlightOfferCard({ offer, cheapest = false }) {
         <span className="inline-flex items-center gap-1.5">
           <Briefcase size={13} aria-hidden="true" /> {baggageLabel(offer.baggage)}
         </span>
+        {total !== null && offer.slices.length > 1 && <span>Total travel time {formatDuration(total)}</span>}
         {offer.cabinClass && <span className="capitalize">{offer.cabinClass.replace('_', ' ')}</span>}
         {offer.expiresAt && (
           <span className="inline-flex items-center gap-1.5">

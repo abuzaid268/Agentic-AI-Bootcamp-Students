@@ -251,7 +251,8 @@ describe('starting values from the trip', () => {
   it('fills the form from the trip without choosing an airport', () => {
     const start = initialFlightForm({ departureHint: ' London ', departureCountry: 'gb', arrivalHint: 'Amman',
       departureDate: '2026-12-01', returnDate: '2026-12-08', adults: 2 })
-    assert.deepEqual(start, { departureHint: 'London', departureCountry: 'GB', arrivalHint: 'Amman',
+    assert.deepEqual(start, { departureHint: 'London', departureCountry: 'GB', arrivalHint: 'Amman', arrivalCountry: '',
+      departurePlace: null, arrivalPlace: null,
       departureDate: '2026-12-01', returnDate: '2026-12-08', roundTrip: true, adults: 2, adultsCapped: false })
     // only text for the airport boxes: the search form still has no airport until the traveller picks one
     assert.deepEqual(Object.keys(validateFlightForm({ origin: null, destination: null, departureDate: start.departureDate,
@@ -259,8 +260,9 @@ describe('starting values from the trip', () => {
   })
 
   it('starts empty, as before, without a trip', () => {
-    assert.deepEqual(initialFlightForm(), { departureHint: '', departureCountry: '', arrivalHint: '', departureDate: '',
-      returnDate: '', roundTrip: true, adults: 1, adultsCapped: false })
+    assert.deepEqual(initialFlightForm(), { departureHint: '', departureCountry: '', arrivalHint: '', arrivalCountry: '',
+      departurePlace: null, arrivalPlace: null, departureDate: '', returnDate: '', roundTrip: true, adults: 1,
+      adultsCapped: false })
   })
 
   it('leaves unusable values empty instead of guessing', () => {
@@ -283,7 +285,7 @@ describe('starting values from the trip', () => {
     const source = readFileSync(new URL('./FlightSearch.jsx', import.meta.url), 'utf8')
     assert.match(source, /const \[start\] = useState\(\(\) => initialFlightForm\(initial\)\)/)
     assert.match(source, /useState\(null\)[^\n]*\n\s*const \[destination, setDestination\] = useState\(null\)/)
-    assert.match(source, /defaultValue=\{start\.arrivalHint\}/)
-    assert.doesNotMatch(source, /setOrigin\(\s*\{|setDestination\(\s*\{/) // only AirportSearch's onSelect sets them
+    assert.match(source, /useState\(start\.arrivalHint\)/) // text for the box, never an airport
+    assert.doesNotMatch(source, /setOrigin\(\s*\{|setDestination\(\s*\{/) // only a real airport object is ever set
   })
 })
